@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Travel",
+    "slug": "travel",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.travel.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": ["expo-secure-store", "expo-sqlite"]
+  }
+}

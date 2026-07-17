@@ -1,0 +1,18 @@
+.claude/
+plans/
+.env
+.env.local
+
+# deps / build output
+node_modules/
+dist/
+.next/
+.expo/
+*.tsbuildinfo
+
+# android
+apps/mobile/android/
+*.keystore
+
+# misc
+.DS_Store

@@ -1,0 +1,19 @@
+{
+  "name": "@travel/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@travel/types": "workspace:*",
+    "@tanstack/react-query": "^5.51.23"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

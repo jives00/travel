@@ -1,0 +1,31 @@
+services:
+  api:
+    image: ghcr.io/jives00/travel-api:latest
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: travel-api
+    ports:
+      - "3008:3008"
+    env_file: .env
+    volumes:
+      - /volume2/docker/travel/uploads:/app/apps/api/uploads
+    networks: [shared-db]
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/jives00/travel-web:latest
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: travel-web
+    ports:
+      - "3003:3000"
+    environment:
+      API_URL: http://travel-api:3008
+    networks: [shared-db]
+    restart: unless-stopped
+
+networks:
+  shared-db:
+    external: true

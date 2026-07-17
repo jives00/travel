@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS places (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  user_id          INT NOT NULL,
+  google_place_id  VARCHAR(255) NULL,
+  name             VARCHAR(255) NOT NULL,
+  category         ENUM('food','sight','activity','lodging','transit','shopping','other') NOT NULL,
+  status           ENUM('idea','planned','visited') NOT NULL DEFAULT 'idea',
+  address          VARCHAR(512) NULL,
+  lat              DECIMAL(10,7) NOT NULL,
+  lng              DECIMAL(10,7) NOT NULL,
+  location         POINT SRID 0 NOT NULL,
+  hours            JSON NULL,
+  hero_photo_url   VARCHAR(1024) NULL,
+  note             TEXT NULL,
+  created_at       DATETIME DEFAULT NOW(),
+  updated_at       DATETIME DEFAULT NOW() ON UPDATE NOW(),
+  SPATIAL INDEX spx_places_location (location),
+  INDEX idx_places_user_id (user_id),
+  INDEX idx_places_category (category),
+  INDEX idx_places_status (status),
+  UNIQUE KEY uq_place_google (user_id, google_place_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

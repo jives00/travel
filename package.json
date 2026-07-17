@@ -1,0 +1,25 @@
+{
+  "name": "travel",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "pnpm": {
+    "overrides": {
+      "react": "19.1.0",
+      "react-dom": "19.1.0"
+    }
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @travel/types --filter @travel/core --filter @travel/api-client --filter @travel/ui-tokens --filter @travel/api --filter @travel/web dev",
+    "dev:packages": "pnpm --parallel --filter @travel/types --filter @travel/core --filter @travel/api-client --filter @travel/ui-tokens dev",
+    "dev:api": "pnpm --filter @travel/api dev",
+    "dev:web": "pnpm --filter @travel/web dev",
+    "dev:mobile": "pnpm --filter @travel/mobile start",
+    "migrate": "pnpm --filter @travel/api migrate",
+    "test:core": "pnpm --filter @travel/core test",
+    "build:api": "pnpm --filter @travel/api build",
+    "build:web": "pnpm --filter @travel/web build"
+  }
+}
