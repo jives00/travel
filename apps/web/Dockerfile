@@ -28,6 +28,12 @@ RUN pnpm rebuild sharp
 # reaches `next build`, not just passed to `docker run` where it'd do nothing.
 ARG NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
 ENV NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
+# next.config.mjs's rewrites() is evaluated once at build time into a static
+# routes manifest, not re-evaluated per request — so API_URL must be baked in
+# here too, or the manifest freezes on its localhost:3008 fallback regardless
+# of what's set on the running container (Trakt precedent: apps/web/Dockerfile).
+ARG API_URL=http://travel-api:3008
+ENV API_URL=$API_URL
 RUN pnpm --filter @travel/web build
 
 FROM base AS runtime
