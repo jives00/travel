@@ -20,6 +20,23 @@ export interface RequestOptions {
 
 const NO_RETRY_PATHS = new Set(["/api/auth/login", "/api/auth/refresh", "/api/auth/session"]);
 
+// Every request is time-bounded. Without this, a request made while the server is
+// unreachable but a base URL is still cached (e.g. the NAS loses power mid-trip)
+// hangs for the OS-level connection timeout (30–60s on Android) instead of
+// failing fast so the UI can fall back to cached data. 12s is generous for a
+// slow Tailscale hop yet well under the OS timeout.
+const REQUEST_TIMEOUT_MS = 12_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface ApiClientConfig {
   baseUrl: BaseUrlResolver;
   tokenStore: TokenStore;
@@ -52,7 +69,7 @@ export function createApiClient(config: ApiClientConfig) {
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: options.method ?? "GET",
       headers,
       credentials: "include",
@@ -61,7 +78,7 @@ export function createApiClient(config: ApiClientConfig) {
 
     if (res.status === 401 && !NO_RETRY_PATHS.has(path) && token) {
       const newToken = await config.refreshAccessToken();
-      const retryRes = await fetch(url, {
+      const retryRes = await fetchWithTimeout(url, {
         method: options.method ?? "GET",
         headers: { ...headers, Authorization: `Bearer ${newToken}` },
         credentials: "include",

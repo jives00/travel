@@ -20,6 +20,14 @@
     "migrate": "pnpm --filter @travel/api migrate",
     "test:core": "pnpm --filter @travel/core test",
     "build:api": "pnpm --filter @travel/api build",
-    "build:web": "pnpm --filter @travel/web build"
+    "build:web": "pnpm --filter @travel/web build",
+    "android": "pnpm --filter @travel/mobile exec expo run:android",
+    "ios": "pnpm --filter @travel/mobile exec expo run:ios"
+  },
+  "version": "1.0.0",
+  "dependencies": {
+    "expo": "~54.0.35",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   }
 }

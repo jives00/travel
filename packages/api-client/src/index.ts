@@ -25,7 +25,7 @@ import { createWishlistQueries } from "./queries/wishlistQuery";
 export * from "./client";
 export * from "./tokenStore";
 export * from "./baseUrl";
-export { AuthManager } from "./authManager";
+export { AuthManager, AuthRejectedError, NetworkUnreachableError } from "./authManager";
 export type { AutocompleteSuggestion, PlaceDetails } from "./endpoints/places";
 export type { ListImageOption } from "./endpoints/trips";
 

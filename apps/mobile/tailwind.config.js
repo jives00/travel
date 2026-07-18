@@ -20,6 +20,7 @@ module.exports = {
         page: { DEFAULT: CHROME.page.light, dark: CHROME.page.dark },
         "text-primary": { DEFAULT: CHROME.textPrimary.light, dark: CHROME.textPrimary.dark },
         "text-secondary": { DEFAULT: CHROME.textSecondary.light, dark: CHROME.textSecondary.dark },
+        "text-muted": { DEFAULT: CHROME.textMuted.light, dark: CHROME.textMuted.dark },
         gridline: { DEFAULT: CHROME.gridline.light, dark: CHROME.gridline.dark },
         status: flatten(STATUS_COLORS),
       },

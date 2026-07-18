@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import { travelApi, tokenStore } from "../lib/api";
+import { prefetchPrimaryTrip } from "../lib/prefetch";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -23,7 +24,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     travelApi.authManager.bootstrap().then((ok) => {
       setIsAuthenticated(ok);
       setIsLoading(false);
-      if (ok) travelApi.authManager.startProactiveRefresh();
+      if (ok) {
+        travelApi.authManager.startProactiveRefresh();
+        // Pin the primary trip so it's fully usable if the NAS drops out later.
+        void prefetchPrimaryTrip();
+      }
     });
 
     // The 15m JWT can expire while the app is backgrounded — refresh on resume,
@@ -34,6 +39,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (now - lastForegroundRefresh.current < FOREGROUND_REFRESH_MIN_GAP_MS) return;
       lastForegroundRefresh.current = now;
       travelApi.authManager.refreshOnForeground();
+      // Re-pin the primary trip on resume so a trip switched on another device,
+      // or new bookings, land in the offline cache before the NAS might drop.
+      void prefetchPrimaryTrip();
     });
 
     return () => {
@@ -51,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (refreshToken) await tokenStore.setRefreshToken(refreshToken);
     setIsAuthenticated(true);
     travelApi.authManager.startProactiveRefresh();
+    void prefetchPrimaryTrip();
   }
 
   async function logout() {

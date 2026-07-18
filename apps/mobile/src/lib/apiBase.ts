@@ -47,4 +47,20 @@ export class ProbingBaseUrlResolver implements BaseUrlResolver {
     this.resolved = null;
     this.pending = null;
   }
+
+  /** Is any API base reachable *right now*? Used by the connectivity manager to
+   * detect the "NAS down while the phone still has internet" case (device is
+   * online per NetInfo, but home is unreachable) and to notice recovery. Always
+   * probes fresh (ignores the cached base) and resolves — never rejects — so it's
+   * safe to poll. On success, adopts the reachable base as the cached one. */
+  async isReachable(): Promise<boolean> {
+    const results = await Promise.all(API_BASES.map((base) => probe(base)));
+    const reachable = results.find((r): r is string => r != null);
+    if (reachable) {
+      this.resolved = reachable;
+      this.pending = null;
+      return true;
+    }
+    return false;
+  }
 }
