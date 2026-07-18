@@ -9,7 +9,7 @@ WORKDIR /app
 # needs at least its package.json present or `--frozen-lockfile` fails workspace
 # resolution — copy package.json-only stubs for siblings apps/api doesn't need
 # source for, full source only for what it actually depends on.
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json .npmrc ./
 COPY packages/types packages/types
 COPY packages/core packages/core
 COPY packages/api-client/package.json packages/api-client/package.json
