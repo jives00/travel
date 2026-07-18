@@ -24,10 +24,7 @@ export function TopNav() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-10 flex h-16 items-center gap-6 border-b border-gridline bg-[#323440] px-4 dark:bg-surface">
-      {/* Placeholder wordmark in a cursive font until a real logo lands */}
-      <span className="text-xl text-white" style={{ fontFamily: "cursive" }}>
-        Travel
-      </span>
+      <img src="/travel/logo.png" alt="Roam" className="h-8 w-8" />
       <nav className="hidden flex-1 items-center gap-1 md:flex">
         {NAV_LINKS.map((link) => {
           const active = pathname === link.href;

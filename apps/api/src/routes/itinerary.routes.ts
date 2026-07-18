@@ -11,15 +11,15 @@ const ITEM_SELECT = `
   SELECT id, trip_id AS tripId, leg_id AS legId, day_index AS dayIndex,
          scheduled_date AS scheduledDate, time, sort_order AS sortOrder,
          item_type AS itemType, place_id AS placeId, booking_id AS bookingId,
-         activity_text AS activityText, is_private AS isPrivate,
+         activity_text AS activityText, is_private AS isPrivate, completed,
          created_at AS createdAt, updated_at AS updatedAt
   FROM itinerary_items
 `;
 
 // mysql2 returns TINYINT(1) as a JS number, not a boolean — coerce before
 // this hits the z.boolean() schema in @travel/types.
-function withBooleanFlag<T extends { isPrivate: unknown }>(row: T): T {
-  return { ...row, isPrivate: Boolean(row.isPrivate) };
+function withBooleanFlag<T extends { isPrivate: unknown; completed: unknown }>(row: T): T {
+  return { ...row, isPrivate: Boolean(row.isPrivate), completed: Boolean(row.completed) };
 }
 
 async function assertOwnsTrip(tripId: string, uid: number): Promise<boolean> {
@@ -34,10 +34,10 @@ export async function itineraryRoutes(app: FastifyInstance): Promise<void> {
     if (!(await assertOwnsTrip(request.params.tripId, userId(request))))
       return reply.code(404).send({ error: "not found" });
     const [rows] = await getPool().query(
-      `${ITEM_SELECT} WHERE trip_id = ? ORDER BY scheduled_date IS NULL, scheduled_date, time IS NULL, time, sort_order`,
+      `${ITEM_SELECT} WHERE trip_id = ? ORDER BY completed, scheduled_date IS NULL, scheduled_date, time IS NULL, time, sort_order`,
       [request.params.tripId],
     );
-    return (rows as { isPrivate: unknown }[]).map(withBooleanFlag);
+    return (rows as { isPrivate: unknown; completed: unknown }[]).map(withBooleanFlag);
   });
 
   app.post<{ Params: { tripId: string } }>("/:tripId/itinerary", auth, async (request, reply) => {
@@ -76,7 +76,7 @@ export async function itineraryRoutes(app: FastifyInstance): Promise<void> {
       await conn.commit();
       const insertId = (result as { insertId: number }).insertId;
       const [rows] = await getPool().query(`${ITEM_SELECT} WHERE id = ?`, [insertId]);
-      return reply.code(201).send(withBooleanFlag((rows as { isPrivate: unknown }[])[0]));
+      return reply.code(201).send(withBooleanFlag((rows as { isPrivate: unknown; completed: unknown }[])[0]));
     } catch (err) {
       await conn.rollback();
       throw err;
@@ -104,6 +104,7 @@ export async function itineraryRoutes(app: FastifyInstance): Promise<void> {
         ["activityText", "activity_text"],
         ["sortOrder", "sort_order"],
         ["isPrivate", "is_private"],
+        ["completed", "completed"],
       ] as const) {
         if (body[key] !== undefined) {
           fields.push(`${column} = ?`);
@@ -122,7 +123,7 @@ export async function itineraryRoutes(app: FastifyInstance): Promise<void> {
         params,
       );
       const [rows] = await getPool().query(`${ITEM_SELECT} WHERE id = ?`, [request.params.itemId]);
-      return withBooleanFlag((rows as { isPrivate: unknown }[])[0]);
+      return withBooleanFlag((rows as { isPrivate: unknown; completed: unknown }[])[0]);
     },
   );
 

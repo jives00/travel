@@ -3,6 +3,7 @@ import { View, Text, Pressable, FlatList } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import type { ListWithItems } from "@travel/types";
 import { travelApi } from "../lib/api";
+import { usePullToRefresh } from "../lib/usePullToRefresh";
 import {
   useCreateList,
   useAddItem,
@@ -96,12 +97,15 @@ export function ListsScreen() {
   const { data: lists } = useQuery(travelApi.queries.listsQuery());
   const [name, setName] = useState("");
   const createList = useCreateList();
+  const { refreshing, onRefresh } = usePullToRefresh();
 
   return (
     <Screen padded={false}>
       <FlatList
         data={lists ?? []}
         keyExtractor={(l) => String(l.id)}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         contentContainerStyle={{ padding: 16 }}
         ListHeaderComponent={
           <View className="mb-3 flex-row gap-2">

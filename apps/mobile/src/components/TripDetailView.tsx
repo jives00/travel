@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { View, Text, Image, Pressable, ScrollView } from "react-native";
+import { View, Text, Image, Pressable, RefreshControl, ScrollView } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import type { Booking, Trip } from "@travel/types";
 import { computeCountdown } from "@travel/core";
 import { travelApi } from "../lib/api";
+import { usePullToRefresh } from "../lib/usePullToRefresh";
 import {
   useUpdateTrip,
   useSetPrimary,
@@ -12,7 +14,7 @@ import {
   useAddLeg,
   useDeleteLeg,
 } from "../lib/offlineMutations/trips";
-import { Card, Button, SegmentedControl, TextField, Sheet } from "./ui";
+import { Card, Button, SegmentedControl, TextField, Sheet, STATUS_BAR_BG } from "./ui";
 import { TripWeather } from "./TripWeather";
 import { TripItinerary } from "./TripItinerary";
 import { TripMap } from "./TripMap";
@@ -46,6 +48,9 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const [cityStart, setCityStart] = useState("");
   const [cityEnd, setCityEnd] = useState("");
 
+  const insets = useSafeAreaInsets();
+  const { refreshing, onRefresh } = usePullToRefresh();
+
   if (!trip) return null;
 
   const sortedLegs = [...trip.legs].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -72,11 +77,21 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   }
 
   return (
-    <ScrollView className="flex-1 bg-page dark:bg-page-dark">
+    <View className="flex-1 bg-page dark:bg-page-dark">
+      <View style={{ height: insets.top, backgroundColor: STATUS_BAR_BG }} />
       <SyncBanner />
+      <ScrollView className="flex-1" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
       {/* Hero */}
       <View className="relative h-56 w-full bg-category-lodging">
         {heroUri ? <Image source={{ uri: heroUri }} className="h-full w-full" resizeMode="cover" /> : null}
+        {/* Fade behind the text — stacked bands simulate a gradient without a native module. */}
+        <View className="absolute inset-x-0 bottom-0 h-32 flex-col justify-end">
+          <View className="h-6 bg-black/10" />
+          <View className="h-6 bg-black/20" />
+          <View className="h-6 bg-black/35" />
+          <View className="h-6 bg-black/45" />
+          <View className="h-8 bg-black/55" />
+        </View>
         <View className="absolute inset-0 justify-between p-4">
           <View className="flex-row justify-end">
             <Pressable onPress={() => setEditing(true)} className="rounded bg-black/40 px-2 py-1">
@@ -129,33 +144,6 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
 
         <TripWeather tripId={tripId} />
 
-        {/* Cities (legs) */}
-        <View className="mb-4">
-          <View className="mb-2 flex-row items-center justify-between">
-            <Text className="text-xs font-semibold uppercase text-text-muted">Cities</Text>
-            <Pressable onPress={() => setAddingCity(true)}>
-              <Text className="text-sm text-category-transit">+ Add city</Text>
-            </Pressable>
-          </View>
-          {sortedLegs.length === 0 ? (
-            <Text className="text-sm text-text-muted">No cities yet.</Text>
-          ) : (
-            sortedLegs.map((leg) => (
-              <Card key={leg.id} className="mb-2 flex-row items-center justify-between">
-                <View>
-                  <Text className="font-medium text-text-primary dark:text-text-primary-dark">{leg.city}</Text>
-                  <Text className="text-xs text-text-muted">
-                    {leg.startDate && leg.endDate ? `${leg.startDate} – ${leg.endDate}` : "Dates not set"}
-                  </Text>
-                </View>
-                <Pressable onPress={() => deleteLeg.mutate({ legId: leg.id })} className="px-2">
-                  <Text className="text-text-muted">✕</Text>
-                </Pressable>
-              </Card>
-            ))
-          )}
-        </View>
-
         <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Itinerary</Text>
         <TripItinerary tripId={tripId} legs={sortedLegs} />
 
@@ -200,6 +188,32 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
               setBackdropDraft("");
             }}
           />
+        </View>
+
+        <View className="mb-4">
+          <View className="mb-2 flex-row items-center justify-between">
+            <Text className="text-sm text-text-secondary dark:text-text-secondary-dark">Cities</Text>
+            <Pressable onPress={() => setAddingCity(true)}>
+              <Text className="text-sm text-category-transit">+ Add city</Text>
+            </Pressable>
+          </View>
+          {sortedLegs.length === 0 ? (
+            <Text className="text-sm text-text-muted">No cities yet.</Text>
+          ) : (
+            sortedLegs.map((leg) => (
+              <Card key={leg.id} className="mb-2 flex-row items-center justify-between">
+                <View>
+                  <Text className="font-medium text-text-primary dark:text-text-primary-dark">{leg.city}</Text>
+                  <Text className="text-xs text-text-muted">
+                    {leg.startDate && leg.endDate ? `${leg.startDate} – ${leg.endDate}` : "Dates not set"}
+                  </Text>
+                </View>
+                <Pressable onPress={() => deleteLeg.mutate({ legId: leg.id })} className="px-2">
+                  <Text className="text-text-muted">✕</Text>
+                </Pressable>
+              </Card>
+            ))
+          )}
         </View>
 
         <Button
@@ -247,6 +261,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
           }}
         />
       </Sheet>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

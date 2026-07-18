@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Booking, BookingType, CreateBookingBody } from "@travel/types";
 import type { AutocompleteSuggestion } from "@travel/api-client";
 import { travelApi } from "@/lib/api";
+import { sessionToken as makeSessionToken } from "@/lib/sessionToken";
 
 export const BOOKING_TYPES: { value: BookingType; label: string }[] = [
   { value: "flight", label: "Flight" },
@@ -112,7 +113,7 @@ function HotelAddressSearch({ form, onChange }: { form: BookingFormState; onChan
   const [searching, setSearching] = useState(false);
   const [picking, setPicking] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
-  const sessionToken = useRef(crypto.randomUUID());
+  const sessionToken = useRef(makeSessionToken());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -166,7 +167,7 @@ function HotelAddressSearch({ form, onChange }: { form: BookingFormState; onChan
       });
       setInput("");
       setSuggestions([]);
-      sessionToken.current = crypto.randomUUID();
+      sessionToken.current = makeSessionToken();
     } finally {
       setPicking(false);
     }

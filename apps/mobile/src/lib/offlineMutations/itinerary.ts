@@ -77,6 +77,7 @@ export function useScheduleItem(tripId: number) {
         bookingId: body.bookingId ?? null,
         activityText: body.activityText ?? null,
         isPrivate: body.isPrivate ?? false,
+        completed: false,
         createdAt: now,
         updatedAt: now,
       };

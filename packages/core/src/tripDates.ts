@@ -15,6 +15,17 @@ export function daysBetween(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / 86_400_000);
 }
 
+/** Today's date in the device's local timezone, as "YYYY-MM-DD" — used to
+ * backfill an itinerary item's date when it's checked off complete with no
+ * date previously set. */
+export function todayDateString(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // "Leg" is the internal/data-model term; the UI calls it "city".
 export function pluralCity(n: number): string {
   return n === 1 ? "city" : "cities";

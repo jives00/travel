@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import { onlineManager } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import { colorScheme } from "nativewind";
 import "./global.css";
 
@@ -11,6 +13,8 @@ import { RootNavigator } from "./src/navigation";
 import { queryClient, persistOptions } from "./src/lib/queryClient";
 import { startConnectivityManager } from "./src/lib/connectivity";
 import { loadTempIdCounter, resumeQueuedMutations } from "./src/lib/mutations";
+import UpdateBanner from "./src/components/UpdateBanner";
+import { useUpdateStore } from "./src/store/update";
 // Imported for its side effect: registers every offline mutation's default
 // behavior (setMutationDefaults) so paused mutations can replay after a cold
 // start. Feature phases add their registrations to this module.
@@ -44,6 +48,21 @@ export default function App() {
     });
   }, []);
 
+  // Check for a newer APK on cold start and whenever the app returns to the
+  // foreground, so a build published while backgrounded still gets picked up.
+  const checkForUpdate = useUpdateStore((s) => s.checkForUpdate);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    checkForUpdate();
+    const sub = AppState.addEventListener("change", (next) => {
+      if (appState.current.match(/inactive|background/) && next === "active") {
+        checkForUpdate();
+      }
+      appState.current = next;
+    });
+    return () => sub.remove();
+  }, [checkForUpdate]);
+
   if (!ready) return null;
 
   return (
@@ -58,6 +77,8 @@ export default function App() {
       }}
     >
       <SafeAreaProvider>
+        <StatusBar style="light" />
+        <UpdateBanner />
         <AuthProvider>
           <RootNavigator />
         </AuthProvider>

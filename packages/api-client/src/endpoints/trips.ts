@@ -41,7 +41,7 @@ export function createTripsEndpoints(request: RequestFn) {
     weather: (id: number) =>
       request<{
         city: string | null;
-        days: { date: string; tempMaxF: number; tempMinF: number; condition: string }[];
+        days: { date: string; tempMaxF: number; tempMinF: number; condition: string; city: string }[];
       }>(`/api/trips/${id}/weather`),
     create: (body: CreateTripBody) => request<Trip>("/api/trips", { method: "POST", body }),
     update: (id: number, body: UpdateTripBody) =>

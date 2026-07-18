@@ -8,6 +8,7 @@ import type { WishlistLocationType, WishlistStatus } from "@travel/types";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { googleMapsUrl } from "@/lib/mapInfoWindow";
+import { sessionToken as makeSessionToken } from "@/lib/sessionToken";
 
 // Same inline-SVG pin icon as trip-map.tsx / the old map-view — a real
 // <img>-based icon, not a google.maps.Symbol path (Symbol.path only supports
@@ -168,7 +169,7 @@ function WishlistAddForm({ onAdded }: { onAdded: () => void }) {
   const [type, setType] = useState<WishlistLocationType>("city");
   const [status, setStatus] = useState<WishlistStatus>("want_to_visit");
   const [note, setNote] = useState("");
-  const sessionToken = useRef(crypto.randomUUID());
+  const sessionToken = useRef(makeSessionToken());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -220,7 +221,7 @@ function WishlistAddForm({ onAdded }: { onAdded: () => void }) {
     setType(details.googleTypes?.includes("country") ? "country" : "city");
     setInput("");
     setSuggestions([]);
-    sessionToken.current = crypto.randomUUID();
+    sessionToken.current = makeSessionToken();
   }
 
   function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

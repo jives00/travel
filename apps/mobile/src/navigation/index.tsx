@@ -1,6 +1,8 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { STATUS_BAR_BG } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
 import { LoginScreen } from "../screens/LoginScreen";
 import { HomeScreen } from "../screens/HomeScreen";
@@ -10,8 +12,6 @@ import { MapScreen } from "../screens/MapScreen";
 import { ListsScreen } from "../screens/ListsScreen";
 import { MoreScreen } from "../screens/MoreScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
-import { PlacesScreen } from "../screens/PlacesScreen";
-import { PlaceDetailScreen } from "../screens/PlaceDetailScreen";
 import type { MoreStackParamList, TripsStackParamList } from "./types";
 
 const RootStack = createNativeStackNavigator();
@@ -24,11 +24,20 @@ const MoreStack = createNativeStackNavigator<MoreStackParamList>();
 
 // Navigation mirrors the web app: Home · Trips · Map · Lists · More. Itinerary,
 // weather, and bookings live inside a trip (Home / Trips → detail), exactly as
-// on web. More is the hub for Settings + the Places library (later: Bookings,
-// Budget, Journal, Documents, Stats).
+// on web. More is the hub for Settings (later: Bookings, Budget, Journal,
+// Documents, Stats).
+// Nested stacks don't inherit MainTabs' headerShown:false, so each sets its own
+// header behavior. Home/Map/Lists are single-screen (no back nav, no header
+// needed); Trips/More push detail screens and need a header for the back
+// button, styled to match the app chrome instead of the native default white.
+const chromeHeaderOptions = {
+  headerStyle: { backgroundColor: STATUS_BAR_BG },
+  headerTintColor: "#fff",
+};
+
 function HomeStackNav() {
   return (
-    <HomeStack.Navigator>
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="Home" component={HomeScreen} />
     </HomeStack.Navigator>
   );
@@ -36,7 +45,7 @@ function HomeStackNav() {
 
 function TripsStackNav() {
   return (
-    <TripsStack.Navigator>
+    <TripsStack.Navigator screenOptions={chromeHeaderOptions}>
       <TripsStack.Screen name="TripsList" component={TripsScreen} options={{ title: "Trips" }} />
       <TripsStack.Screen name="TripDetail" component={TripDetailScreen} options={{ title: "" }} />
     </TripsStack.Navigator>
@@ -45,7 +54,7 @@ function TripsStackNav() {
 
 function MapStackNav() {
   return (
-    <MapStack.Navigator>
+    <MapStack.Navigator screenOptions={{ headerShown: false }}>
       <MapStack.Screen name="Map" component={MapScreen} />
     </MapStack.Navigator>
   );
@@ -53,7 +62,7 @@ function MapStackNav() {
 
 function ListsStackNav() {
   return (
-    <ListsStack.Navigator>
+    <ListsStack.Navigator screenOptions={{ headerShown: false }}>
       <ListsStack.Screen name="Lists" component={ListsScreen} />
     </ListsStack.Navigator>
   );
@@ -61,18 +70,31 @@ function ListsStackNav() {
 
 function MoreStackNav() {
   return (
-    <MoreStack.Navigator>
+    <MoreStack.Navigator screenOptions={chromeHeaderOptions}>
       <MoreStack.Screen name="MoreHub" component={MoreScreen} options={{ title: "More" }} />
       <MoreStack.Screen name="Settings" component={SettingsScreen} />
-      <MoreStack.Screen name="Places" component={PlacesScreen} options={{ title: "Places" }} />
-      <MoreStack.Screen name="PlaceDetail" component={PlaceDetailScreen} options={{ title: "" }} />
     </MoreStack.Navigator>
   );
 }
 
+const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  HomeTab: "home",
+  TripsTab: "airplane",
+  MapTab: "map",
+  ListsTab: "list",
+  MoreTab: "menu",
+};
+
 function MainTabs() {
   return (
-    <Tab.Navigator screenOptions={{ headerShown: false }}>
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarIcon: ({ color, size }) => (
+          <Ionicons name={TAB_ICONS[route.name]} color={color} size={size} />
+        ),
+      })}
+    >
       <Tab.Screen name="HomeTab" component={HomeStackNav} options={{ title: "Home" }} />
       <Tab.Screen name="TripsTab" component={TripsStackNav} options={{ title: "Trips" }} />
       <Tab.Screen name="MapTab" component={MapStackNav} options={{ title: "Map" }} />

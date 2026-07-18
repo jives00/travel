@@ -6,12 +6,10 @@ export type TripsStackParamList = {
   TripDetail: { tripId: number };
 };
 
-/** More tab stack: the hub → settings / places library. */
+/** More tab stack: the hub → settings. */
 export type MoreStackParamList = {
   MoreHub: undefined;
   Settings: undefined;
-  Places: undefined;
-  PlaceDetail: { placeId: number };
 };
 
 export type TripsScreenProps<T extends keyof TripsStackParamList> = NativeStackScreenProps<TripsStackParamList, T>;

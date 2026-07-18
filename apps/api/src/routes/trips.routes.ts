@@ -4,7 +4,7 @@ import { computeTripStatus } from "@travel/core";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { pingCityPhotoDownload, searchCityPhoto, searchCityPhotoOptions } from "../services/unsplash.client";
-import { getCityForecast } from "../services/weather.client";
+import { getCityForecast, type CityForecast } from "../services/weather.client";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -181,11 +181,13 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     return withLegsAndStatus(list[0]);
   });
 
-  // Weather for whichever leg is "current or next" — same tiebreak logic the
-  // hero used to use for lodging before that moved into the itinerary. No
-  // forecast for a trip whose dated legs are all in the past (nothing to
-  // forecast); a dreaming trip with no dates at all still gets its first
-  // leg's current conditions as a preview.
+  // Weather for each of the next 4 calendar days, using whichever leg covers
+  // that specific day — so a trip that changes cities mid-window shows each
+  // day's actual destination instead of freezing on the first city. A day
+  // with no covering leg (trip hasn't started, or is between dated legs)
+  // previews the next leg still to come; a dreaming trip with no dates at
+  // all just uses its first leg for every day. No forecast for a trip whose
+  // dated legs are all in the past (nothing to forecast).
   app.get<{ Params: { id: string } }>("/:id/weather", auth, async (request, reply) => {
     const [rows] = await getPool().query(`${TRIP_SELECT} WHERE id = ? AND user_id = ?`, [
       request.params.id,
@@ -198,17 +200,46 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     const sorted = [...legs].sort((a, b) => a.sortOrder - b.sortOrder);
     if (sorted.length === 0) return { city: null, days: [] };
 
-    const today = new Date().toISOString().slice(0, 10);
     const dated = sorted.filter((l) => l.startDate && l.endDate);
-    const current = dated.find((l) => l.startDate! <= today && today <= l.endDate!);
-    const upcoming = dated
-      .filter((l) => l.startDate! > today)
-      .sort((a, b) => a.startDate!.localeCompare(b.startDate!))[0];
-    const focusLeg = current ?? upcoming ?? (dated.length === 0 ? sorted[0] : null);
-    if (!focusLeg) return { city: null, days: [] };
 
-    const forecast = await getCityForecast(focusLeg.city).catch(() => null);
-    return forecast ?? { city: focusLeg.city, days: [] };
+    function cityForDate(date: string): string | null {
+      const covering = dated.find((l) => l.startDate! <= date && date <= l.endDate!);
+      if (covering) return covering.city;
+      const upcoming = dated
+        .filter((l) => l.startDate! > date)
+        .sort((a, b) => a.startDate!.localeCompare(b.startDate!))[0];
+      if (upcoming) return upcoming.city;
+      if (dated.length === 0) return sorted[0].city;
+      return null;
+    }
+
+    const todayUtc = new Date();
+    const dayCities = Array.from({ length: 4 }, (_, i) => {
+      const d = new Date(todayUtc);
+      d.setUTCDate(d.getUTCDate() + i);
+      return d.toISOString().slice(0, 10);
+    })
+      .map((date) => ({ date, city: cityForDate(date) }))
+      .filter((d): d is { date: string; city: string } => d.city !== null);
+    if (dayCities.length === 0) return { city: null, days: [] };
+
+    const uniqueCities = [...new Set(dayCities.map((d) => d.city))];
+    const forecastByCity = new Map<string, CityForecast | null>();
+    await Promise.all(
+      uniqueCities.map(async (city) => {
+        forecastByCity.set(city, await getCityForecast(city).catch(() => null));
+      }),
+    );
+
+    const days = dayCities
+      .map(({ date, city }) => {
+        const forecast = forecastByCity.get(city);
+        const match = forecast?.days.find((d) => d.date === date);
+        return match ? { ...match, city: forecast!.city } : null;
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null);
+
+    return { city: days[0]?.city ?? null, days };
   });
 
   app.get<{ Params: { id: string } }>("/:id", auth, async (request, reply) => {

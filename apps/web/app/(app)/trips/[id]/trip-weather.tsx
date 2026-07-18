@@ -53,24 +53,33 @@ export function TripWeather({ tripId }: { tripId: number }) {
   // No city (trip has no legs at all) or the trip's dated legs are entirely
   // in the past — a forecast isn't meaningful, so the widget just disappears
   // rather than showing something misleading.
-  if (!data?.city || data.days.length === 0) return null;
+  if (!data || data.days.length === 0) return null;
 
   return (
     <div>
-      <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Weather · {data.city}</h2>
+      <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Weather</h2>
       <section className="rounded border border-gridline bg-surface p-4">
         <div className="flex justify-between gap-2">
-          {data.days.map((day, i) => (
-            <div key={day.date} className="flex flex-1 flex-col items-center gap-1 text-center">
-              <div className="text-sm text-text-muted">{dayLabel(day.date, i)}</div>
-              <div className="text-3xl" title={day.condition}>
-                {CONDITION_EMOJI[day.condition] ?? "—"}
+          {data.days.map((day, i) => {
+            const cityChanged = i === 0 || day.city !== data.days[i - 1].city;
+            return (
+              <div key={day.date} className="flex flex-1 items-stretch gap-2">
+                {i > 0 && cityChanged && <div className="w-px shrink-0 bg-gridline" />}
+                <div className="flex flex-1 flex-col items-center gap-1 text-center">
+                  {cityChanged && (
+                    <div className="truncate text-xs font-medium text-text-muted">{day.city}</div>
+                  )}
+                  <div className="text-sm text-text-muted">{dayLabel(day.date, i)}</div>
+                  <div className="text-3xl" title={day.condition}>
+                    {CONDITION_EMOJI[day.condition] ?? "—"}
+                  </div>
+                  <div className="text-sm text-text-primary">
+                    {day.tempMaxF}° <span className="text-text-muted">{day.tempMinF}°</span>
+                  </div>
+                </div>
               </div>
-              <div className="text-sm text-text-primary">
-                {day.tempMaxF}° <span className="text-text-muted">{day.tempMinF}°</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>

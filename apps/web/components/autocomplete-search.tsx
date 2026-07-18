@@ -5,6 +5,7 @@ import type { Place, PlaceTag } from "@travel/types";
 import { PLACE_TAGS, suggestPrimaryTagFromGoogleTypes } from "@travel/core";
 import type { AutocompleteSuggestion, PlaceDetails } from "@travel/api-client";
 import { travelApi } from "@/lib/api";
+import { sessionToken as makeSessionToken } from "@/lib/sessionToken";
 
 interface PlacePreview {
   details: PlaceDetails;
@@ -64,7 +65,7 @@ export const AutocompleteSearch = forwardRef<
   const [saving, setSaving] = useState(false);
   // One session token per typing session — reset after a selection is made, so
   // a whole session bills as one Autocomplete session, not one per keystroke.
-  const sessionToken = useRef(crypto.randomUUID());
+  const sessionToken = useRef(makeSessionToken());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -131,7 +132,7 @@ export const AutocompleteSearch = forwardRef<
   function cancelPreview() {
     setPreview(null);
     setInput("");
-    sessionToken.current = crypto.randomUUID(); // abandoning this session — fresh token for the next search
+    sessionToken.current = makeSessionToken(); // abandoning this session — fresh token for the next search
   }
 
   async function savePreview() {
@@ -164,7 +165,7 @@ export const AutocompleteSearch = forwardRef<
       }
       setPreview(null);
       setInput("");
-      sessionToken.current = crypto.randomUUID(); // fresh session for the next search
+      sessionToken.current = makeSessionToken(); // fresh session for the next search
       onCreated(place);
     } finally {
       setSaving(false);

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, ScrollView } from "react-native";
+import { View, Text } from "react-native";
 import type { BookingType, CreateBookingBody, Leg } from "@travel/types";
 import { BOOKING_TYPES, enumLabel } from "@travel/core";
 import { useCreateBooking } from "../lib/offlineMutations/bookings";
@@ -15,7 +15,17 @@ function combine(date: string, time: string): string | undefined {
 /** Create a booking. Port of web's booking-fields.tsx essentials (type, title,
  * dates/times, confirmation, price, notes, leg). Hotel-address autocomplete is
  * deferred; a booking can still carry a typed address later via edit. */
-export function BookingForm({ tripId, legs, onSaved }: { tripId: number; legs: Leg[]; onSaved: () => void }) {
+export function BookingForm({
+  tripId,
+  legs,
+  defaultLegId,
+  onSaved,
+}: {
+  tripId: number;
+  legs: Leg[];
+  defaultLegId?: number | null;
+  onSaved: () => void;
+}) {
   const createBooking = useCreateBooking(tripId);
   const [type, setType] = useState<BookingType>("flight");
   const [title, setTitle] = useState("");
@@ -26,7 +36,7 @@ export function BookingForm({ tripId, legs, onSaved }: { tripId: number; legs: L
   const [endTime, setEndTime] = useState("");
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("");
-  const [legId, setLegId] = useState<number | null>(null);
+  const [legId, setLegId] = useState<number | null>(defaultLegId ?? null);
 
   function save() {
     if (!title.trim()) return;
@@ -45,9 +55,7 @@ export function BookingForm({ tripId, legs, onSaved }: { tripId: number; legs: L
   }
 
   return (
-    <ScrollView keyboardShouldPersistTaps="handled">
-      <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">Add booking</Text>
-
+    <View>
       <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">Type</Text>
       <SegmentedControl className="mb-3" segments={TYPE_SEGMENTS} value={type} onChange={setType} />
 
@@ -81,6 +89,6 @@ export function BookingForm({ tripId, legs, onSaved }: { tripId: number; legs: L
       )}
 
       <Button title="Save booking" onPress={save} loading={createBooking.isPending} disabled={!title.trim()} />
-    </ScrollView>
+    </View>
   );
 }

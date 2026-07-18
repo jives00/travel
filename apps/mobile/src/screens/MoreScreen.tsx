@@ -4,16 +4,14 @@ import { useUpdateStore } from "../store/update";
 import { Screen, Card, Button } from "../components/ui";
 import type { MoreScreenProps } from "../navigation/types";
 
-/** The More hub — entry point to Settings, the Places library, and account
- * actions. (Bookings/Budget/Journal/Documents/Stats join here as later phases
- * add them.) */
+/** The More hub — entry point to Settings and account actions.
+ * (Bookings/Budget/Journal/Documents/Stats join here as later phases add them.) */
 export function MoreScreen({ navigation }: MoreScreenProps<"MoreHub">) {
   const { logout } = useAuth();
   const { availableTag, downloading, progress, checkForUpdate, startUpdate } = useUpdateStore();
 
   const rows: { label: string; onPress: () => void }[] = [
     { label: "Settings", onPress: () => navigation.navigate("Settings") },
-    { label: "Places library", onPress: () => navigation.navigate("Places") },
   ];
 
   return (

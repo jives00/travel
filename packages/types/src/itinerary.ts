@@ -16,6 +16,7 @@ export const ItineraryItem = z.object({
   bookingId: z.number().int().nullable(),
   activityText: z.string().nullable(),
   isPrivate: z.boolean(),
+  completed: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -52,5 +53,6 @@ export const MoveItemBody = z.object({
   activityText: z.string().max(512).optional(),
   sortOrder: z.number().int().optional(),
   isPrivate: z.boolean().optional(),
+  completed: z.boolean().optional(),
 });
 export type MoveItemBody = z.infer<typeof MoveItemBody>;

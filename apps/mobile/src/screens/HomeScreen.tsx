@@ -13,7 +13,7 @@ export function HomeScreen() {
 
   if (!home) {
     return (
-      <Screen>
+      <Screen scroll>
         <View className="flex-1 items-center justify-center">
           <Text className="mb-2 text-lg font-semibold text-text-primary dark:text-text-primary-dark">
             No active trip right now

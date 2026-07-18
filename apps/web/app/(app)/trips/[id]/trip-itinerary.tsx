@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, ItineraryItem, Leg, Place, PlaceTag } from "@travel/types";
-import { BOOKING_TYPES, PLACE_TAGS, enumLabel, mapPinGroupForTag } from "@travel/core";
+import { BOOKING_TYPES, PLACE_TAGS, enumLabel, mapPinGroupForTag, todayDateString } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
 import { useTheme } from "@/lib/theme-context";
@@ -71,6 +71,9 @@ interface Entry {
   // Only place/idea entries can be marked private (backed by itinerary_items.
   // is_private) — bookings never carry this flag.
   isPrivate: boolean;
+  // Only place/idea entries can be checked off done/visited (backed by
+  // itinerary_items.completed) — bookings never carry this flag.
+  completed: boolean;
   // Human-readable grouping label used only by the "Category" sort mode —
   // a place's primary tag, a booking's type, or "Idea".
   categoryLabel: string;
@@ -96,6 +99,7 @@ function bookingEntry(b: Booking): Entry {
     icon: bookingType?.iconName,
     iconLabel: bookingType?.label,
     isPrivate: false,
+    completed: false,
     categoryLabel: bookingType?.label ?? b.type,
     booking: b,
   };
@@ -118,6 +122,7 @@ function itemEntry(i: ItineraryItem, placesById: Map<number, Place>): Entry {
     description: isPlace ? (place?.description ?? undefined) : undefined,
     placeId: isPlace ? place?.id : undefined,
     isPrivate: i.isPrivate,
+    completed: i.completed,
     categoryLabel: isPlace ? (placeTag?.label ?? "Uncategorized") : "Idea",
     mapPinGroup: isPlace ? (mapPinGroupForTag(place?.primaryTag) as MapPinGroup) : undefined,
     item: i,
@@ -147,6 +152,7 @@ function groupFor(entry: Entry, legs: Leg[], earliestStart: string | null, lates
 
 function sortEntries(entries: Entry[]): Entry[] {
   return [...entries].sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
     const ad = a.scheduledDate ?? "zzzz";
     const bd = b.scheduledDate ?? "zzzz";
     if (ad !== bd) return ad.localeCompare(bd);
@@ -160,10 +166,15 @@ function sortEntries(entries: Entry[]): Entry[] {
 type LegSortMode = "date" | "alpha" | "category";
 
 function sortLegEntries(entries: Entry[], mode: LegSortMode): Entry[] {
-  if (mode === "alpha") return [...entries].sort((a, b) => a.title.localeCompare(b.title));
+  if (mode === "alpha") {
+    return [...entries].sort((a, b) => (a.completed !== b.completed ? (a.completed ? 1 : -1) : a.title.localeCompare(b.title)));
+  }
   if (mode === "category") {
     return [...entries].sort(
-      (a, b) => a.categoryLabel.localeCompare(b.categoryLabel) || a.title.localeCompare(b.title),
+      (a, b) =>
+        (a.completed !== b.completed ? (a.completed ? 1 : -1) : 0) ||
+        a.categoryLabel.localeCompare(b.categoryLabel) ||
+        a.title.localeCompare(b.title),
     );
   }
   return sortEntries(entries);
@@ -200,67 +211,88 @@ export function Modal({
 
 function EntryRow({
   entry,
+  fading,
   onClick,
+  onToggleComplete,
   onHoverPlace,
 }: {
   entry: Entry;
+  // True for the brief window between checking the box and the list actually
+  // reordering the entry to the bottom — see toggleComplete in TripItinerary.
+  fading?: boolean;
   onClick: () => void;
+  onToggleComplete?: (entry: Entry) => void;
   onHoverPlace?: (placeId: number | null) => void;
 }) {
   const { theme } = useTheme();
   // Only place entries carry a map-pin group — bookings/ideas keep the
   // plain muted icon (no colored circle) since they have no map marker.
   const pinColor = entry.mapPinGroup ? (MAP_PIN_COLORS[entry.mapPinGroup] ?? MAP_PIN_COLORS.other)[theme] : undefined;
+  // Only place/idea entries can be checked off — bookings have no `completed`
+  // column and keep their own time field (startAt/endAt), so no checkbox.
+  const completable = entry.kind !== "booking";
+  const done = entry.completed || fading;
 
   return (
     <li
       onMouseEnter={() => entry.placeId != null && onHoverPlace?.(entry.placeId)}
       onMouseLeave={() => entry.placeId != null && onHoverPlace?.(null)}
     >
-      <button
-        onClick={onClick}
-        className="flex w-full items-center gap-3 rounded border border-gridline bg-surface p-2 text-left text-sm hover:border-category-transit"
+      <div
+        className={`flex items-center gap-2 rounded border border-gridline bg-surface p-2 transition-opacity duration-500 hover:border-category-transit ${done ? "opacity-50" : "opacity-100"}`}
       >
-        {entry.icon ? (
-          <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-            style={pinColor ? { backgroundColor: pinColor } : undefined}
-          >
+        <button onClick={onClick} className="flex min-w-0 flex-1 items-center gap-3 text-left text-sm">
+          {entry.icon ? (
             <span
-              className={`material-symbols-outlined text-lg ${pinColor ? "text-white" : "text-text-muted"}`}
-              title={entry.iconLabel}
-              aria-hidden="true"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+              style={pinColor ? { backgroundColor: pinColor } : undefined}
             >
-              {entry.icon}
+              <span
+                className={`material-symbols-outlined text-lg ${pinColor ? "text-white" : "text-text-muted"}`}
+                title={entry.iconLabel}
+                aria-hidden="true"
+              >
+                {entry.icon}
+              </span>
             </span>
-          </span>
-        ) : (
-          <span className="shrink-0 text-xs uppercase text-text-muted">{entry.subtitle}</span>
+          ) : (
+            <span className="shrink-0 text-xs uppercase text-text-muted">{entry.subtitle}</span>
+          )}
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <span className="flex items-center justify-between gap-2">
+              <span className={`flex items-center gap-2 text-base text-text-primary ${done ? "line-through" : ""}`}>
+                {entry.title}
+                {entry.isPrivate && (
+                  <span className="material-symbols-outlined text-sm text-text-muted" title="Private" aria-label="Private">
+                    lock
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 text-xs text-text-muted">
+                {entry.scheduledDate
+                  ? new Date(`${entry.scheduledDate}T00:00:00Z`).toLocaleDateString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                      timeZone: "UTC",
+                    })
+                  : ""}
+                {entry.kind === "booking" && entry.time ? ` · ${formatTime12h(entry.time)}` : ""}
+              </span>
+            </span>
+            {entry.description && <span className="line-clamp-2 text-sm text-text-muted">{entry.description}</span>}
+          </div>
+        </button>
+        {completable && (
+          <input
+            type="checkbox"
+            checked={done}
+            onChange={() => onToggleComplete?.(entry)}
+            title={done ? "Mark not visited" : "Mark visited"}
+            aria-label={done ? "Mark not visited" : "Mark visited"}
+            className="h-5 w-5 shrink-0 accent-category-transit"
+          />
         )}
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <span className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2 text-base text-text-primary">
-              {entry.title}
-              {entry.isPrivate && (
-                <span className="material-symbols-outlined text-sm text-text-muted" title="Private" aria-label="Private">
-                  lock
-                </span>
-              )}
-            </span>
-            <span className="shrink-0 text-xs text-text-muted">
-              {entry.scheduledDate
-                ? new Date(`${entry.scheduledDate}T00:00:00Z`).toLocaleDateString("en-US", {
-                    month: "long",
-                    day: "numeric",
-                    timeZone: "UTC",
-                  })
-                : ""}
-              {entry.time ? ` · ${formatTime12h(entry.time)}` : ""}
-            </span>
-          </span>
-          {entry.description && <span className="line-clamp-2 text-sm text-text-muted">{entry.description}</span>}
-        </div>
-      </button>
+      </div>
     </li>
   );
 }
@@ -278,8 +310,6 @@ function IdeaOrPlaceFields({
   setLegId,
   scheduledDate,
   setScheduledDate,
-  time,
-  setTime,
   activityText,
   setActivityText,
   isPrivate,
@@ -295,8 +325,6 @@ function IdeaOrPlaceFields({
   setLegId: (v: string) => void;
   scheduledDate: string;
   setScheduledDate: (v: string) => void;
-  time: string;
-  setTime: (v: string) => void;
   activityText: string;
   setActivityText: (v: string) => void;
   isPrivate: boolean;
@@ -338,26 +366,15 @@ function IdeaOrPlaceFields({
           ))}
         </select>
       </div>
-      <div className="flex gap-2">
-        <label className="flex-1 text-xs text-text-muted">
-          Date (optional)
-          <input
-            type="date"
-            className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
-            value={scheduledDate}
-            onChange={(e) => setScheduledDate(e.target.value)}
-          />
-        </label>
-        <label className="flex-1 text-xs text-text-muted">
-          Time (optional)
-          <input
-            type="time"
-            className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-          />
-        </label>
-      </div>
+      <label className="block text-xs text-text-muted">
+        Date (optional)
+        <input
+          type="date"
+          className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
+          value={scheduledDate}
+          onChange={(e) => setScheduledDate(e.target.value)}
+        />
+      </label>
       <label className="flex items-center gap-2 text-sm text-text-secondary">
         <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
         Private
@@ -387,7 +404,6 @@ function AddItemModal({
   const [bookingForm, setBookingForm] = useState<BookingFormState>(() => ({ ...EMPTY_BOOKING_FORM, legId: defaultLegIdStr }));
   const [legId, setLegId] = useState(defaultLegIdStr);
   const [scheduledDate, setScheduledDate] = useState("");
-  const [time, setTime] = useState("");
   const [activityText, setActivityText] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const placeSearchRef = useRef<AutocompleteSearchHandle>(null);
@@ -405,7 +421,6 @@ function AddItemModal({
           activityText: mode === "activity" ? activityText.trim() || undefined : undefined,
           legId: legId ? Number(legId) : undefined,
           scheduledDate: scheduledDate || undefined,
-          time: time || undefined,
           isPrivate,
         });
         await queryClient.invalidateQueries({ queryKey: ["itinerary", tripId] });
@@ -427,7 +442,6 @@ function AddItemModal({
         placeId: place.id,
         legId: legId ? Number(legId) : undefined,
         scheduledDate: scheduledDate || undefined,
-        time: time || undefined,
         isPrivate,
       });
       await queryClient.invalidateQueries({ queryKey: ["itinerary", tripId] });
@@ -478,8 +492,6 @@ function AddItemModal({
           setLegId={setLegId}
           scheduledDate={scheduledDate}
           setScheduledDate={setScheduledDate}
-          time={time}
-          setTime={setTime}
           activityText={activityText}
           setActivityText={setActivityText}
           isPrivate={isPrivate}
@@ -525,7 +537,6 @@ function EditItemModal({
   const [bookingForm, setBookingForm] = useState<BookingFormState>(() => (entry.booking ? bookingToForm(entry.booking) : EMPTY_BOOKING_FORM));
   const [legId, setLegId] = useState(entry.legId != null ? String(entry.legId) : "");
   const [scheduledDate, setScheduledDate] = useState(entry.scheduledDate ?? "");
-  const [time, setTime] = useState(entry.time ?? "");
   const [activityText, setActivityText] = useState(entry.item?.activityText ?? "");
   const [isPrivate, setIsPrivate] = useState(entry.isPrivate);
 
@@ -539,7 +550,6 @@ function EditItemModal({
         await travelApi.itinerary.move(tripId, entry.item.id, {
           legId: legId ? Number(legId) : null,
           scheduledDate: scheduledDate || null,
-          time: time || null,
           activityText: entry.kind === "activity" ? activityText.trim() : undefined,
           isPrivate,
         });
@@ -591,26 +601,15 @@ function EditItemModal({
               ))}
             </select>
           </div>
-          <div className="flex gap-2">
-            <label className="flex-1 text-xs text-text-muted">
-              Date (optional)
-              <input
-                type="date"
-                className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
-                value={scheduledDate}
-                onChange={(e) => setScheduledDate(e.target.value)}
-              />
-            </label>
-            <label className="flex-1 text-xs text-text-muted">
-              Time (optional)
-              <input
-                type="time"
-                className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-              />
-            </label>
-          </div>
+          <label className="block text-xs text-text-muted">
+            Date (optional)
+            <input
+              type="date"
+              className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
+              value={scheduledDate}
+              onChange={(e) => setScheduledDate(e.target.value)}
+            />
+          </label>
           <label className="flex items-center gap-2 text-sm text-text-secondary">
             <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
             Private
@@ -668,7 +667,6 @@ function PlaceDetailPanel({
   const [savingDescription, setSavingDescription] = useState(false);
   const [legId, setLegId] = useState(entry.legId != null ? String(entry.legId) : "");
   const [scheduledDate, setScheduledDate] = useState(entry.scheduledDate ?? "");
-  const [time, setTime] = useState(entry.time ?? "");
   const [isPrivate, setIsPrivate] = useState(entry.isPrivate);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [primaryTag, setPrimaryTagState] = useState<PlaceTag | "">(place?.primaryTag ?? "");
@@ -763,7 +761,6 @@ function PlaceDetailPanel({
       await travelApi.itinerary.move(tripId, entry.item.id, {
         legId: legId ? Number(legId) : null,
         scheduledDate: scheduledDate || null,
-        time: time || null,
         isPrivate,
       });
       await queryClient.invalidateQueries({ queryKey: ["itinerary", tripId] });
@@ -977,12 +974,6 @@ function PlaceDetailPanel({
               className="flex-1 rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
               value={scheduledDate}
               onChange={(e) => setScheduledDate(e.target.value)}
-            />
-            <input
-              type="time"
-              className="flex-1 rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
             />
           </div>
           <label className="mt-2 flex items-center gap-2 text-sm text-text-secondary">
@@ -1243,6 +1234,11 @@ export function TripItinerary({
   const [newCity, setNewCity] = useState("");
   const [addingCity, setAddingCity] = useState(false);
   const [legSortMode, setLegSortMode] = useState<Record<number, LegSortMode>>({});
+  // Entries mid-fade after being checked off — kept faded-in-place until the
+  // animation finishes, so the fade is visible before the item jumps to the
+  // bottom of the list (an instant reorder alongside the opacity change would
+  // otherwise happen off in the new spot, unseen).
+  const [fadingKeys, setFadingKeys] = useState<Set<string>>(new Set());
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   function sectionRef(key: string) {
@@ -1270,6 +1266,32 @@ export function TripItinerary({
   const hotelBookingByLegId = new Map<number, Booking>();
   for (const b of bookings ?? []) {
     if (b.type === "hotel" && b.legId != null && !hotelBookingByLegId.has(b.legId)) hotelBookingByLegId.set(b.legId, b);
+  }
+
+  // Marking complete backfills scheduledDate with today's local date only if
+  // it wasn't already set — no time is tracked, per spec. When checking (not
+  // unchecking), the fade plays in place for FADE_MS before the list actually
+  // reorders the entry to the bottom.
+  const FADE_MS = 400;
+  async function toggleComplete(entry: Entry) {
+    if (!entry.item) return;
+    const completed = !entry.completed;
+    if (completed) setFadingKeys((prev) => new Set(prev).add(entry.key));
+    const move = travelApi.itinerary.move(tripId, entry.item.id, {
+      completed,
+      ...(completed && !entry.scheduledDate ? { scheduledDate: todayDateString() } : {}),
+    });
+    if (completed) {
+      await Promise.all([move, new Promise((resolve) => setTimeout(resolve, FADE_MS))]);
+    } else {
+      await move;
+    }
+    await queryClient.invalidateQueries({ queryKey: ["itinerary", tripId] });
+    setFadingKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(entry.key);
+      return next;
+    });
   }
 
   async function addCity(e: React.FormEvent) {
@@ -1380,7 +1402,9 @@ export function TripItinerary({
       <EntryRow
         key={entry.key}
         entry={entry}
+        fading={fadingKeys.has(entry.key)}
         onClick={() => (entry.kind === "place" ? setExpandedKey(entry.key) : setEditingEntry(entry))}
+        onToggleComplete={toggleComplete}
         onHoverPlace={onHoverPlace}
       />
     );

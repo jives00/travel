@@ -40,22 +40,33 @@ export function TripWeather({ tripId }: { tripId: number }) {
     );
   }
 
-  if (!data?.city || data.days.length === 0) return null;
+  if (!data || data.days.length === 0) return null;
 
   return (
     <View className="mb-4">
-      <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Weather · {data.city}</Text>
+      <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Weather</Text>
       <Card>
         <View className="flex-row justify-between">
-          {data.days.map((day, i) => (
-            <View key={day.date} className="flex-1 items-center gap-1">
-              <Text className="text-xs text-text-muted">{dayLabel(day.date, i)}</Text>
-              <Text className="text-2xl">{CONDITION_EMOJI[day.condition] ?? "—"}</Text>
-              <Text className="text-sm text-text-primary dark:text-text-primary-dark">
-                {day.tempMaxF}° <Text className="text-text-muted">{day.tempMinF}°</Text>
-              </Text>
-            </View>
-          ))}
+          {data.days.map((day, i) => {
+            const cityChanged = i === 0 || day.city !== data.days[i - 1].city;
+            return (
+              <View key={day.date} className="flex-1 flex-row items-stretch gap-2">
+                {i > 0 && cityChanged && <View className="w-px bg-gridline" />}
+                <View className="flex-1 items-center gap-1">
+                  {cityChanged && (
+                    <Text className="text-xs font-medium text-text-muted" numberOfLines={1}>
+                      {day.city}
+                    </Text>
+                  )}
+                  <Text className="text-xs text-text-muted">{dayLabel(day.date, i)}</Text>
+                  <Text className="text-2xl">{CONDITION_EMOJI[day.condition] ?? "—"}</Text>
+                  <Text className="text-sm text-text-primary dark:text-text-primary-dark">
+                    {day.tempMaxF}° <Text className="text-text-muted">{day.tempMinF}°</Text>
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
       </Card>
     </View>

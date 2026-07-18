@@ -3,20 +3,13 @@ import { View, Text, Pressable, FlatList, Image } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { onlineManager } from "@tanstack/react-query";
 import type { Trip } from "@travel/types";
-import { earliestLegStart, latestLegEnd, formatDateRange } from "@travel/core";
+import { earliestLegStart, latestLegEnd } from "@travel/core";
 import { travelApi } from "../lib/api";
 import { queryClient } from "../lib/queryClient";
+import { usePullToRefresh } from "../lib/usePullToRefresh";
 import { useCreateTrip } from "../lib/offlineMutations/trips";
 import { Screen, TextField, Button } from "../components/ui";
 import type { TripsScreenProps } from "../navigation/types";
-
-function dateLabel(trip: Trip): string {
-  const start = earliestLegStart(trip);
-  const end = latestLegEnd(trip);
-  if (start && end) return formatDateRange(start, end);
-  if (trip.legs.length === 0) return "No cities yet";
-  return "Dates not set";
-}
 
 /** Primary first; then upcoming by soonest start; then past by most-recently ended. */
 function sortTrips(trips: Trip[]): Trip[] {
@@ -72,7 +65,6 @@ function TripCard({ trip, onPress }: { trip: Trip; onPress: () => void }) {
             {trip.isPrimary ? "★ " : ""}
             {trip.name}
           </Text>
-          <Text className="text-xs text-white/80">{dateLabel(trip)}</Text>
         </View>
       </View>
     </Pressable>
@@ -83,6 +75,7 @@ export function TripsScreen({ navigation }: TripsScreenProps<"TripsList">) {
   const { data: trips } = useQuery(travelApi.queries.tripsQuery());
   const [name, setName] = useState("");
   const createTrip = useCreateTrip();
+  const { refreshing, onRefresh } = usePullToRefresh();
 
   function onCreate() {
     if (!name.trim()) return;
@@ -97,6 +90,8 @@ export function TripsScreen({ navigation }: TripsScreenProps<"TripsList">) {
       <FlatList
         data={sorted}
         keyExtractor={(t) => String(t.id)}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         numColumns={2}
         columnWrapperStyle={{ gap: 12 }}
         contentContainerStyle={{ padding: 16 }}

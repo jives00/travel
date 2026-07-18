@@ -42,6 +42,14 @@ export function useCreateBooking(tripId: number) {
   return { ...m, create: (body: CreateBookingBody) => m.mutate({ tripId, body, tempId: nextTempId() }) };
 }
 
+export function useUpdateBooking(tripId: number) {
+  const m = useMutation<Booking, Error, { tripId: number; bookingId: number; body: UpdateBookingBody }>({
+    mutationKey: BOOKING_UPDATE,
+    onSettled: (_d, _e, v) => invalidate(v.tripId),
+  });
+  return { ...m, update: (bookingId: number, body: UpdateBookingBody) => m.mutate({ tripId, bookingId, body }) };
+}
+
 export function useRemoveBooking(tripId: number) {
   return useMutation<void, Error, { bookingId: number }>({
     mutationKey: BOOKING_REMOVE,

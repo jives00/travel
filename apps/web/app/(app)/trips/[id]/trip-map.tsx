@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
-import { PLACE_TAGS, mapPinGroupForTag } from "@travel/core";
+import { mapPinGroupForTag } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { infoWindowHtml } from "@/lib/mapInfoWindow";
@@ -73,14 +73,12 @@ export function TripMap({
   const infoWindowRef = useRef<InfoWindowInstance | null>(null);
   const allMarkers = useRef<MapMarker[]>([]);
   const [cityFilter, setCityFilter] = useState<number | "all">("all");
-  const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
 
   useEffect(() => {
     setCityFilter(activeLegId ?? "all");
   }, [activeLegId]);
   // Day trips clutter the map by default (they're often far outside the
-  // city's normal bounds) — hidden unless explicitly turned on, or unless
-  // the category filter is narrowed specifically to Day Trip.
+  // city's normal bounds) — hidden unless explicitly turned on.
   const [includeDayTrips, setIncludeDayTrips] = useState(false);
 
   // Same rule the itinerary list applies — a place scheduled as a private
@@ -97,9 +95,20 @@ export function TripMap({
       ),
     [items],
   );
+  // A place checked off done/visited drops off the map entirely, same as the
+  // itinerary list dropping it to the bottom.
+  const completedPlaceIds = useMemo(
+    () =>
+      new Set(
+        (items ?? [])
+          .filter((i) => i.itemType === "place" && i.completed && i.placeId != null)
+          .map((i) => i.placeId as number),
+      ),
+    [items],
+  );
   const visiblePlaces = useMemo(
-    () => (places ?? []).filter((p) => showPrivate || !privatePlaceIds.has(p.id)),
-    [places, showPrivate, privatePlaceIds],
+    () => (places ?? []).filter((p) => (showPrivate || !privatePlaceIds.has(p.id)) && !completedPlaceIds.has(p.id)),
+    [places, showPrivate, privatePlaceIds, completedPlaceIds],
   );
 
   // Which leg(s) each place is scheduled onto, from the itinerary — a place
@@ -117,23 +126,17 @@ export function TripMap({
   }, [items]);
 
   const legOptions = trip?.legs ?? [];
-  const categoryOptions = useMemo(() => {
-    const present = new Set<string>();
-    for (const p of visiblePlaces) if (p.primaryTag) present.add(p.primaryTag);
-    return PLACE_TAGS.filter((t) => present.has(t.key));
-  }, [visiblePlaces]);
 
-  // City/category filters only narrow places — hotel markers aren't tagged
-  // with a category, so only the city filter applies to them.
+  // City filter only narrows places — hotel markers aren't tagged with a
+  // category, so only the city filter applies to them.
   const filteredPlaces = useMemo(
     () =>
       visiblePlaces.filter((p) => {
         if (cityFilter !== "all" && !placeLegIds.get(p.id)?.has(cityFilter)) return false;
-        if (categoryFilter !== "all" && p.primaryTag !== categoryFilter) return false;
-        if (!includeDayTrips && p.primaryTag === "day_trip" && categoryFilter !== "day_trip") return false;
+        if (!includeDayTrips && p.primaryTag === "day_trip") return false;
         return true;
       }),
-    [visiblePlaces, cityFilter, categoryFilter, includeDayTrips, placeLegIds],
+    [visiblePlaces, cityFilter, includeDayTrips, placeLegIds],
   );
 
   useEffect(() => {
@@ -310,30 +313,6 @@ export function TripMap({
               }`}
             >
               {leg.city}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {categoryOptions.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => setCategoryFilter("all")}
-            className={`rounded-full px-2.5 py-1 text-xs ${
-              categoryFilter === "all" ? "bg-category-transit text-white" : "bg-surface text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            All categories
-          </button>
-          {categoryOptions.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setCategoryFilter(t.key)}
-              className={`rounded-full px-2.5 py-1 text-xs ${
-                categoryFilter === t.key ? "bg-category-transit text-white" : "bg-surface text-text-secondary hover:text-text-primary"
-              }`}
-            >
-              {t.label}
             </button>
           ))}
         </div>
