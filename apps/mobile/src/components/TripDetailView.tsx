@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { View, Text, Image, Pressable, RefreshControl, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import type { Booking, Trip } from "@travel/types";
 import { computeCountdown } from "@travel/core";
@@ -24,7 +26,12 @@ import { SyncBanner } from "./SyncBanner";
  * and the Home tab (Home just resolves the active/primary trip and renders this).
  * Mirrors web's trip-detail.tsx: hero + countdown, readiness nudges, edit sheet,
  * weather. Itinerary and the trip map are embedded in later phases (D/E). */
+// Budget lives in both the Home and Trips stacks under this screen name, so a
+// minimal param-list shape is all this navigate call needs.
+type BudgetNav = NativeStackNavigationProp<{ TripBudget: { tripId: number } }>;
+
 export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchived?: () => void }) {
+  const navigation = useNavigation<BudgetNav>();
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const { data: hero } = useQuery({
@@ -141,6 +148,13 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
             ))}
           </Card>
         )}
+
+        <Pressable onPress={() => navigation.navigate("TripBudget", { tripId })}>
+          <Card className="mb-4 flex-row items-center justify-between">
+            <Text className="font-medium text-text-primary dark:text-text-primary-dark">Budget</Text>
+            <Text className="text-text-muted">›</Text>
+          </Card>
+        </Pressable>
 
         <TripWeather tripId={tripId} />
 

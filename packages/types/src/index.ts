@@ -4,6 +4,7 @@ export * from "./place";
 export * from "./trip";
 export * from "./itinerary";
 export * from "./booking";
+export * from "./expense";
 export * from "./list";
 export * from "./settings";
 export * from "./wishlist";

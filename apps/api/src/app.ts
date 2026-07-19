@@ -13,6 +13,7 @@ import { tripsRoutes } from "./routes/trips.routes";
 import { legsRoutes } from "./routes/legs.routes";
 import { itineraryRoutes } from "./routes/itinerary.routes";
 import { bookingsRoutes, bookingsGlobalRoutes } from "./routes/bookings.routes";
+import { expensesRoutes } from "./routes/expenses.routes";
 import { listsRoutes } from "./routes/lists.routes";
 import { settingsRoutes } from "./routes/settings.routes";
 import { mapRoutes } from "./routes/map.routes";
@@ -45,6 +46,7 @@ export function buildApp(): FastifyInstance {
   void app.register(itineraryRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/itinerary/*
   void app.register(bookingsRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/bookings/*
   void app.register(bookingsGlobalRoutes, { prefix: "/api/bookings" }); // /api/bookings/hotels
+  void app.register(expensesRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/expenses/*, /budget
   void app.register(listsRoutes, { prefix: "/api/lists" });
   void app.register(settingsRoutes, { prefix: "/api/settings" });
   void app.register(mapRoutes, { prefix: "/api/map" });

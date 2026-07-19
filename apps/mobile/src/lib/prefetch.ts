@@ -31,6 +31,8 @@ export async function prefetchPrimaryTrip(): Promise<void> {
     queryClient.prefetchQuery(travelApi.queries.itineraryQuery(id)),
     queryClient.prefetchQuery(travelApi.queries.placesQuery({ tripId: id })),
     queryClient.prefetchQuery(travelApi.queries.bookingsQuery(id)),
+    queryClient.prefetchQuery(travelApi.queries.budgetQuery(id)),
+    queryClient.prefetchQuery(travelApi.queries.expensesQuery(id)),
     queryClient.prefetchQuery(travelApi.queries.weatherQuery(id)),
     // Settings + the whole place library are cheap and useful offline too.
     queryClient.prefetchQuery(travelApi.queries.settingsQuery()),

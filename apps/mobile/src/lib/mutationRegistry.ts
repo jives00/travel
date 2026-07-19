@@ -27,6 +27,7 @@ import { registerListMutations } from "./offlineMutations/lists";
 import { registerPlaceMutations } from "./offlineMutations/places";
 import { registerItineraryMutations } from "./offlineMutations/itinerary";
 import { registerBookingMutations } from "./offlineMutations/bookings";
+import { registerExpenseMutations } from "./offlineMutations/expenses";
 import { registerWishlistMutations } from "./offlineMutations/wishlist";
 
 // Phase B — Trips
@@ -40,6 +41,8 @@ registerPlaceMutations();
 // Phase D — Itinerary + Bookings
 registerItineraryMutations();
 registerBookingMutations();
+// Phase H — Budget
+registerExpenseMutations();
 // Phase E — Wishlist (map overview)
 registerWishlistMutations();
 

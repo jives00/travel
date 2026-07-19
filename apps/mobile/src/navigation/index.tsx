@@ -8,15 +8,16 @@ import { LoginScreen } from "../screens/LoginScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { TripsScreen } from "../screens/TripsScreen";
 import { TripDetailScreen } from "../screens/TripDetailScreen";
+import { TripBudgetScreen } from "../screens/TripBudgetScreen";
 import { MapScreen } from "../screens/MapScreen";
 import { ListsScreen } from "../screens/ListsScreen";
 import { MoreScreen } from "../screens/MoreScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
-import type { MoreStackParamList, TripsStackParamList } from "./types";
+import type { HomeStackParamList, MoreStackParamList, TripsStackParamList } from "./types";
 
 const RootStack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
-const HomeStack = createNativeStackNavigator();
+const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const TripsStack = createNativeStackNavigator<TripsStackParamList>();
 const MapStack = createNativeStackNavigator();
 const ListsStack = createNativeStackNavigator();
@@ -39,6 +40,13 @@ function HomeStackNav() {
   return (
     <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="Home" component={HomeScreen} />
+      {/* Home tab hides headers, but the pushed Budget screen needs a header for
+          its back button — turn it on just for this screen. */}
+      <HomeStack.Screen
+        name="TripBudget"
+        component={TripBudgetScreen}
+        options={{ headerShown: true, ...chromeHeaderOptions, title: "Budget" }}
+      />
     </HomeStack.Navigator>
   );
 }
@@ -48,6 +56,7 @@ function TripsStackNav() {
     <TripsStack.Navigator screenOptions={chromeHeaderOptions}>
       <TripsStack.Screen name="TripsList" component={TripsScreen} options={{ title: "Trips" }} />
       <TripsStack.Screen name="TripDetail" component={TripDetailScreen} options={{ title: "" }} />
+      <TripsStack.Screen name="TripBudget" component={TripBudgetScreen} options={{ title: "Budget" }} />
     </TripsStack.Navigator>
   );
 }

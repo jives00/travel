@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, Leg, Trip } from "@travel/types";
@@ -356,6 +357,18 @@ export function TripDetail({ tripId }: { tripId: number }) {
             <div className="mt-1 text-sm text-white/80">{countdown.subline}</div>
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Link
+          href={`/trips/${tripId}/budget`}
+          className="inline-flex items-center gap-1 rounded border border-gridline bg-surface px-3 py-1.5 text-sm font-medium text-text-primary hover:border-category-transit"
+        >
+          <span className="material-symbols-outlined text-base" aria-hidden="true">
+            payments
+          </span>
+          Budget
+        </Link>
       </div>
 
       {editingBackdrop && (
