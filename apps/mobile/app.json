@@ -10,7 +10,7 @@
       "package": "com.travel.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#323440"
       },
       "permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"]
     },
