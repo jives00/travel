@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, Text, Pressable } from "react-native";
+import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import type { BudgetLine, CreateExpenseBody, Expense, ExpenseCategory } from "@travel/types";
 import { EXPENSE_CATEGORIES, enumLabel } from "@travel/core";
@@ -18,6 +18,17 @@ const CATEGORY_BAR: Record<ExpenseCategory, string> = {
   other: "bg-category-other",
 };
 
+// The API client throws an Error whose message is the raw response body — a
+// JSON `{ "error": "..." }` for our 4xx replies. Surface just the message.
+function errorText(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  try {
+    return (JSON.parse(raw) as { error?: string }).error ?? raw;
+  } catch {
+    return raw || "Something went wrong.";
+  }
+}
+
 function money(n: number, currency: string): string {
   try {
     return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
@@ -31,7 +42,8 @@ type Grouping = "category" | "leg";
 export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
   const { tripId } = route.params;
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
-  const { data: budget } = useQuery(travelApi.queries.budgetQuery(tripId));
+  const budgetQuery = useQuery(travelApi.queries.budgetQuery(tripId));
+  const budget = budgetQuery.data;
   const { data: expenses } = useQuery(travelApi.queries.expensesQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
 
@@ -53,10 +65,29 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
     return map;
   }, [expenses]);
 
+  if (budgetQuery.isError) {
+    return (
+      <Screen>
+        <View className="flex-1 items-center justify-center">
+          <Text className="mb-1 text-base font-semibold text-text-primary dark:text-text-primary-dark">
+            Couldn&apos;t load the budget
+          </Text>
+          <Text className="mb-4 text-center text-sm text-text-muted">
+            {errorText(budgetQuery.error)}
+          </Text>
+          <Button title="Retry" onPress={() => budgetQuery.refetch()} />
+        </View>
+      </Screen>
+    );
+  }
+
   if (!trip || !budget) {
     return (
       <Screen>
-        <Text className="text-text-muted">Loading budget…</Text>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator />
+          <Text className="mt-2 text-text-muted">Loading budget…</Text>
+        </View>
       </Screen>
     );
   }
@@ -120,15 +151,17 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
         }}
       />
 
-      <SegmentedControl
-        className="mb-3"
-        value={grouping}
-        onChange={setGrouping}
-        segments={[
-          { value: "category", label: "By category" },
-          { value: "leg", label: "By city" },
-        ]}
-      />
+      {budget.lines.length > 0 && (
+        <SegmentedControl
+          className="mb-3"
+          value={grouping}
+          onChange={setGrouping}
+          segments={[
+            { value: "category", label: "By category" },
+            { value: "leg", label: "By city" },
+          ]}
+        />
+      )}
 
       {/* Rollup bars */}
       {rollups.map((r) => (
@@ -143,10 +176,13 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
         </Card>
       ))}
 
-      {rollups.length === 0 && (
-        <Card className="mb-4">
+      {budget.lines.length === 0 && (
+        <Card className="mb-4 items-center py-8">
+          <Text className="mb-1 text-base font-medium text-text-primary dark:text-text-primary-dark">
+            No expenses yet
+          </Text>
           <Text className="text-center text-sm text-text-muted">
-            No expenses yet. Add one, or bookings with a price appear here automatically.
+            Tap &ldquo;Add expense&rdquo; above, or add a price to a booking on this trip and it shows up here automatically.
           </Text>
         </Card>
       )}
