@@ -23,6 +23,19 @@ function dayLabel(dateStr: string, index: number): string {
   return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
 }
 
+// Groups consecutive same-city days so the city name can be rendered once,
+// spanning the width of its days, instead of repeating (and misaligning
+// the day columns) inside each individual day.
+function citySegments(days: { city: string }[]): { city: string; length: number }[] {
+  const segments: { city: string; length: number }[] = [];
+  for (const day of days) {
+    const last = segments[segments.length - 1];
+    if (last && last.city === day.city) last.length += 1;
+    else segments.push({ city: day.city, length: 1 });
+  }
+  return segments;
+}
+
 export function TripWeather({ tripId }: { tripId: number }) {
   const { data, isPending } = useQuery(travelApi.queries.weatherQuery(tripId));
 
@@ -55,31 +68,31 @@ export function TripWeather({ tripId }: { tripId: number }) {
   // rather than showing something misleading.
   if (!data || data.days.length === 0) return null;
 
+  const segments = citySegments(data.days);
+
   return (
     <div>
       <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Weather</h2>
       <section className="rounded border border-gridline bg-surface p-4">
-        <div className="flex justify-between gap-2">
-          {data.days.map((day, i) => {
-            const cityChanged = i === 0 || day.city !== data.days[i - 1].city;
-            return (
-              <div key={day.date} className="flex flex-1 items-stretch gap-2">
-                {i > 0 && cityChanged && <div className="w-px shrink-0 bg-gridline" />}
-                <div className="flex flex-1 flex-col items-center gap-1 text-center">
-                  {cityChanged && (
-                    <div className="truncate text-xs font-medium text-text-muted">{day.city}</div>
-                  )}
-                  <div className="text-sm text-text-muted">{dayLabel(day.date, i)}</div>
-                  <div className="text-3xl" title={day.condition}>
-                    {CONDITION_EMOJI[day.condition] ?? "—"}
-                  </div>
-                  <div className="text-sm text-text-primary">
-                    {day.tempMaxF}° <span className="text-text-muted">{day.tempMinF}°</span>
-                  </div>
-                </div>
+        <div className="flex gap-2">
+          {segments.map((seg, i) => (
+            <div key={i} className="min-w-0 truncate text-left text-xs font-medium text-text-muted" style={{ flex: seg.length }}>
+              {seg.city}
+            </div>
+          ))}
+        </div>
+        <div className="mt-1 flex gap-2">
+          {data.days.map((day, i) => (
+            <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center">
+              <div className="text-sm text-text-muted">{dayLabel(day.date, i)}</div>
+              <div className="text-3xl" title={day.condition}>
+                {CONDITION_EMOJI[day.condition] ?? "—"}
               </div>
-            );
-          })}
+              <div className="text-sm text-text-primary">
+                {day.tempMaxF}° <span className="text-text-muted">{day.tempMinF}°</span>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
     </div>

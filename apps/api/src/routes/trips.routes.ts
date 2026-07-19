@@ -231,10 +231,20 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       }),
     );
 
+    // Forecasts are fetched with timezone "auto" (the city's local calendar),
+    // while dayCities is built from todayUtc — so exact date-string matching
+    // can miss a day whenever a city's local "today" differs from the UTC
+    // date (e.g. UTC-8 city, evening in UTC). Match by each city's running
+    // occurrence count instead: getCityForecast always returns 4 consecutive
+    // local days starting from that city's "today", so the Nth day we need
+    // that city's forecast for is reliably forecast.days[N].
+    const occurrenceByCity = new Map<string, number>();
     const days = dayCities
-      .map(({ date, city }) => {
+      .map(({ city }) => {
         const forecast = forecastByCity.get(city);
-        const match = forecast?.days.find((d) => d.date === date);
+        const index = occurrenceByCity.get(city) ?? 0;
+        occurrenceByCity.set(city, index + 1);
+        const match = forecast?.days[index];
         return match ? { ...match, city: forecast!.city } : null;
       })
       .filter((d): d is NonNullable<typeof d> => d !== null);
