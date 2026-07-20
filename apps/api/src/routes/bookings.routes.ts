@@ -11,10 +11,14 @@ const BOOKING_SELECT = `
   SELECT id, trip_id AS tripId, leg_id AS legId, type, title,
          confirmation_code AS confirmationCode, flight_number AS flightNumber,
          start_at AS startAt, end_at AS endAt, price, currency, place_id AS placeId,
-         address, lat, lng, notes,
+         address, lat, lng, notes, completed,
          created_at AS createdAt, updated_at AS updatedAt
   FROM bookings
 `;
+
+function withBooleanCompleted<T extends { completed: unknown }>(row: T): T {
+  return { ...row, completed: Boolean(row.completed) };
+}
 
 async function assertOwnsTrip(tripId: string | number, uid: number): Promise<boolean> {
   const [rows] = await getPool().query("SELECT id FROM trips WHERE id = ? AND user_id = ?", [tripId, uid]);
@@ -31,7 +35,7 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
       `${BOOKING_SELECT} WHERE trip_id = ? ORDER BY start_at IS NULL, start_at`,
       [request.params.tripId],
     );
-    return rows;
+    return (rows as { completed: unknown }[]).map(withBooleanCompleted);
   });
 
   app.post<{ Params: { tripId: string } }>("/:tripId/bookings", auth, async (request, reply) => {
@@ -43,8 +47,8 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
     const body = parsed.data;
 
     const [result] = await getPool().query(
-      `INSERT INTO bookings (trip_id, leg_id, type, title, confirmation_code, flight_number, start_at, end_at, price, currency, place_id, address, lat, lng, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO bookings (trip_id, leg_id, type, title, confirmation_code, flight_number, start_at, end_at, price, currency, place_id, address, lat, lng, notes, completed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         request.params.tripId,
         body.legId ?? null,
@@ -61,11 +65,12 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
         body.lat ?? null,
         body.lng ?? null,
         body.notes ?? null,
+        body.completed ?? false,
       ],
     );
     const insertId = (result as { insertId: number }).insertId;
     const [rows] = await getPool().query(`${BOOKING_SELECT} WHERE id = ?`, [insertId]);
-    return reply.code(201).send((rows as unknown[])[0]);
+    return reply.code(201).send(withBooleanCompleted((rows as { completed: unknown }[])[0]));
   });
 
   app.patch<{ Params: { tripId: string; bookingId: string } }>(
@@ -96,6 +101,7 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
         ["lat", "lat"],
         ["lng", "lng"],
         ["notes", "notes"],
+        ["completed", "completed"],
       ] as const) {
         if (body[key] !== undefined) {
           fields.push(`${column} = ?`);
@@ -107,7 +113,7 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
       await getPool().query(`UPDATE bookings SET ${fields.join(", ")} WHERE id = ? AND trip_id = ?`, params);
 
       const [rows] = await getPool().query(`${BOOKING_SELECT} WHERE id = ?`, [request.params.bookingId]);
-      return (rows as unknown[])[0];
+      return withBooleanCompleted((rows as { completed: unknown }[])[0]);
     },
   );
 
@@ -141,13 +147,13 @@ export async function bookingsGlobalRoutes(app: FastifyInstance): Promise<void> 
       `SELECT b.id, b.trip_id AS tripId, b.leg_id AS legId, b.type, b.title,
               b.confirmation_code AS confirmationCode, b.flight_number AS flightNumber,
               b.start_at AS startAt, b.end_at AS endAt, b.price, b.currency, b.place_id AS placeId,
-              b.address, b.lat, b.lng, b.notes,
+              b.address, b.lat, b.lng, b.notes, b.completed,
               b.created_at AS createdAt, b.updated_at AS updatedAt
        FROM bookings b
        JOIN trips t ON t.id = b.trip_id
        WHERE t.user_id = ? AND b.type = 'hotel' AND b.lat IS NOT NULL AND b.lng IS NOT NULL`,
       [userId(request)],
     );
-    return rows;
+    return (rows as { completed: unknown }[]).map(withBooleanCompleted);
   });
 }

@@ -22,6 +22,9 @@ export const Booking = z.object({
   lat: z.number().nullable(),
   lng: z.number().nullable(),
   notes: z.string().nullable(),
+  // Bookings never get their own itinerary_item (see bookings.routes.ts), so
+  // this is a separate column rather than reusing itinerary_items.completed.
+  completed: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -42,6 +45,7 @@ export const CreateBookingBody = z.object({
   lat: z.number().optional(),
   lng: z.number().optional(),
   notes: z.string().max(2000).optional(),
+  completed: z.boolean().optional(),
 });
 export type CreateBookingBody = z.infer<typeof CreateBookingBody>;
 

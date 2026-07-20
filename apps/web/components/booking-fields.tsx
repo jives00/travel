@@ -70,12 +70,13 @@ export function formToBody(form: BookingFormState): CreateBookingBody {
     price: form.price ? Number(form.price) : undefined,
     currency: form.currency.trim() || undefined,
     legId: form.legId ? Number(form.legId) : undefined,
-    // Hotels get a direct address/lat/lng (via autocomplete) instead of a
-    // library-place link — the two are mutually exclusive per booking.
+    // A hotel's own address replaces a library-place link (the two are
+    // mutually exclusive there); every other type can carry both — a linked
+    // place plus its own address/meetup location, independent of that link.
     placeId: form.type === "hotel" ? undefined : form.placeId ? Number(form.placeId) : undefined,
-    address: form.type === "hotel" ? form.address.trim() || undefined : undefined,
-    lat: form.type === "hotel" && form.lat ? Number(form.lat) : undefined,
-    lng: form.type === "hotel" && form.lng ? Number(form.lng) : undefined,
+    address: form.address.trim() || undefined,
+    lat: form.lat ? Number(form.lat) : undefined,
+    lng: form.lng ? Number(form.lng) : undefined,
     notes: form.notes.trim() || undefined,
   };
 }
@@ -105,9 +106,10 @@ export function bookingToForm(booking: Booking): BookingFormState {
 
 // Same Google Places autocomplete flow as the places autocomplete, but fills
 // the booking's own address/lat/lng directly instead of creating or linking a
-// library Place — for a hotel, forcing a Place record just to store its
-// address is unwanted overhead.
-function HotelAddressSearch({ form, onChange }: { form: BookingFormState; onChange: (form: BookingFormState) => void }) {
+// library Place — forcing a Place record just to store a meetup spot (a car
+// rental counter, a restaurant reservation, a tour meeting point) is unwanted
+// overhead, and this address is what shows up on the trip map.
+function LocationSearch({ form, onChange }: { form: BookingFormState; onChange: (form: BookingFormState) => void }) {
   const [input, setInput] = useState("");
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
@@ -177,7 +179,7 @@ function HotelAddressSearch({ form, onChange }: { form: BookingFormState; onChan
     <div className="relative">
       <input
         className="w-full rounded border border-gridline bg-transparent p-2 text-text-primary disabled:opacity-50"
-        placeholder="Search hotel address…"
+        placeholder="Search address / meetup location…"
         value={input}
         disabled={picking}
         onChange={(e) => setInput(e.target.value)}
@@ -344,7 +346,7 @@ export function BookingFields({
         )}
       </div>
 
-      {form.type === "hotel" && <HotelAddressSearch form={form} onChange={onChange} />}
+      <LocationSearch form={form} onChange={onChange} />
 
       <textarea
         className="w-full rounded border border-gridline bg-transparent p-2 text-text-primary"

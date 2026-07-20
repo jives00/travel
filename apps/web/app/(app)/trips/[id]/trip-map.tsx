@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
-import { mapPinGroupForTag } from "@travel/core";
+import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { infoWindowHtml } from "@/lib/mapInfoWindow";
@@ -151,25 +151,26 @@ export function TripMap({
     };
   }, []);
 
-  // Hotel bookings carry their own address/lat/lng directly (see
-  // booking-fields.tsx's HotelAddressSearch) — no library Place link required,
-  // so they're plotted independently of `places`, not looked up through one.
-  const hotelMarkers = useMemo(
+  // Any booking can carry its own address/lat/lng directly (see
+  // booking-fields.tsx's LocationSearch) — no library Place link required, so
+  // they're plotted independently of `places`, not looked up through one. A
+  // booking checked off done drops off the map, same as a completed place.
+  const bookingMarkers = useMemo(
     () =>
       (bookings ?? []).filter(
-        (b): b is typeof b & { lat: number; lng: number } => b.type === "hotel" && b.lat != null && b.lng != null,
+        (b): b is typeof b & { lat: number; lng: number } => b.lat != null && b.lng != null && !b.completed,
       ),
     [bookings],
   );
-  // Hotels aren't category-filtered (see filteredPlaces above) but they are
+  // Bookings aren't category-filtered (see filteredPlaces above) but they are
   // still narrowed by city, so a "just this leg" filter doesn't leave a
-  // different city's hotel pin behind.
-  const filteredHotelMarkers = useMemo(
-    () => (cityFilter === "all" ? hotelMarkers : hotelMarkers.filter((b) => b.legId === cityFilter)),
-    [hotelMarkers, cityFilter],
+  // different city's booking pin behind.
+  const filteredBookingMarkers = useMemo(
+    () => (cityFilter === "all" ? bookingMarkers : bookingMarkers.filter((b) => b.legId === cityFilter)),
+    [bookingMarkers, cityFilter],
   );
 
-  const hasAnyMarker = visiblePlaces.length > 0 || hotelMarkers.length > 0;
+  const hasAnyMarker = visiblePlaces.length > 0 || bookingMarkers.length > 0;
 
   // Creates the map exactly once. Re-runs only if the map hasn't been built
   // yet by the time markers first become available (e.g. data arrives after
@@ -179,7 +180,7 @@ export function TripMap({
     const google = (window as unknown as { google: GoogleMaps }).google;
     // Falls back to an unfiltered position so the map still has somewhere to
     // center when the current filters happen to match nothing.
-    const anchor = filteredPlaces[0] ?? visiblePlaces[0] ?? filteredHotelMarkers[0] ?? hotelMarkers[0];
+    const anchor = filteredPlaces[0] ?? visiblePlaces[0] ?? filteredBookingMarkers[0] ?? bookingMarkers[0];
     const firstPosition = { lat: anchor.lat, lng: anchor.lng };
     mapInstance.current = new google.maps.Map(mapRef.current, {
       center: firstPosition,
@@ -194,7 +195,7 @@ export function TripMap({
     // Google Maps itself behaves (clicking a new pin replaces the open card
     // rather than stacking multiple).
     infoWindowRef.current = new google.maps.InfoWindow({});
-  }, [scriptLoaded, hasAnyMarker, filteredPlaces, visiblePlaces, filteredHotelMarkers, hotelMarkers]);
+  }, [scriptLoaded, hasAnyMarker, filteredPlaces, visiblePlaces, filteredBookingMarkers, bookingMarkers]);
 
   // Rebuilds markers and re-fits bounds on the *existing* map instance
   // whenever the filtered set changes — reusing the same map (instead of
@@ -242,13 +243,13 @@ export function TripMap({
       plotted++;
     }
 
-    for (const booking of filteredHotelMarkers) {
+    for (const booking of filteredBookingMarkers) {
       const position = { lat: booking.lat, lng: booking.lng };
       const marker = new google.maps.Marker({
         position,
         map,
         title: booking.title,
-        icon: pinIcon("lodging"),
+        icon: pinIcon(mapPinGroupForBookingType(booking.type) as MapPinGroup),
       });
       marker.addListener("click", () => {
         infoWindow.setContent(infoWindowHtml({ name: booking.title, address: booking.address, lat: booking.lat, lng: booking.lng }));
@@ -260,7 +261,7 @@ export function TripMap({
     }
 
     if (plotted > 0) map.fitBounds(bounds);
-  }, [scriptLoaded, filteredPlaces, filteredHotelMarkers]);
+  }, [scriptLoaded, filteredPlaces, filteredBookingMarkers]);
 
   // Bounce the marker for whichever place is currently hovered in the
   // itinerary list, so the two views visibly link up.
@@ -278,10 +279,10 @@ export function TripMap({
     return <p className="text-sm text-text-muted">Set NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY to render the map.</p>;
   }
   if (!hasAnyMarker) {
-    return <p className="text-sm text-text-muted">No places or hotels with a location yet.</p>;
+    return <p className="text-sm text-text-muted">No places or bookings with a location yet.</p>;
   }
 
-  const hasFilteredMarker = filteredPlaces.length > 0 || filteredHotelMarkers.length > 0;
+  const hasFilteredMarker = filteredPlaces.length > 0 || filteredBookingMarkers.length > 0;
 
   return (
     <div className="space-y-2">

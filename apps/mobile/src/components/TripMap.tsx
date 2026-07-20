@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, Pressable } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { useQuery } from "@tanstack/react-query";
-import { mapPinGroupForTag } from "@travel/core";
+import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
 
@@ -42,6 +42,7 @@ export function TripMap({ tripId }: { tripId: number }) {
   const { data: places } = useQuery(travelApi.queries.placesQuery({ tripId }));
   const { data: items } = useQuery(travelApi.queries.itineraryQuery(tripId));
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
+  const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const mapRef = useRef<MapView>(null);
 
   const [cityFilter, setCityFilter] = useState<number | "all">("all");
@@ -63,6 +64,17 @@ export function TripMap({ tripId }: { tripId: number }) {
   const visiblePlaces = useMemo(
     () => (places ?? []).filter((p) => p.lat != null && p.lng != null && !completedPlaceIds.has(p.id)),
     [places, completedPlaceIds],
+  );
+
+  // Any booking can carry its own address/lat/lng directly — plotted
+  // independently of `places`, same as web's trip-map.tsx. A booking checked
+  // off done drops off the map, same as a completed place.
+  const visibleBookings = useMemo(
+    () =>
+      (bookings ?? []).filter(
+        (b): b is typeof b & { lat: number; lng: number } => b.lat != null && b.lng != null && !b.completed,
+      ),
+    [bookings],
   );
 
   // Which leg(s) each place is scheduled onto, from the itinerary — a place
@@ -91,7 +103,18 @@ export function TripMap({ tripId }: { tripId: number }) {
     [visiblePlaces, cityFilter, includeDayTrips, placeLegIds],
   );
 
-  const initialRegion = useMemo(() => regionForPins(visiblePlaces), [visiblePlaces]);
+  // Bookings aren't category-filtered (see filteredPins above) but they are
+  // still narrowed by city, same as web's trip-map.tsx.
+  const filteredBookingPins = useMemo(
+    () => (cityFilter === "all" ? visibleBookings : visibleBookings.filter((b) => b.legId === cityFilter)),
+    [visibleBookings, cityFilter],
+  );
+
+  const allPins = useMemo(
+    () => [...visiblePlaces, ...visibleBookings.map((b) => ({ lat: b.lat, lng: b.lng }))],
+    [visiblePlaces, visibleBookings],
+  );
+  const initialRegion = useMemo(() => regionForPins(allPins), [allPins]);
 
   // Re-fit the camera to whatever's currently visible whenever the filters
   // change — mirrors web's fitBounds-on-filter-change behavior. Gated on
@@ -104,10 +127,11 @@ export function TripMap({ tripId }: { tripId: number }) {
   // instead of zooming in. regionForPins already floors the delta to a
   // sensible single-pin zoom level.
   useEffect(() => {
-    if (!mapReady || filteredPins.length === 0) return;
-    const region = regionForPins(filteredPins);
+    const combined = [...filteredPins, ...filteredBookingPins];
+    if (!mapReady || combined.length === 0) return;
+    const region = regionForPins(combined);
     if (region) mapRef.current?.animateToRegion(region, 500);
-  }, [mapReady, filteredPins]);
+  }, [mapReady, filteredPins, filteredBookingPins]);
 
   function resetView() {
     setCityFilter("all");
@@ -120,8 +144,8 @@ export function TripMap({ tripId }: { tripId: number }) {
     }
   }
 
-  if (visiblePlaces.length === 0) {
-    return <Text className="text-sm text-text-muted">No places with a location yet.</Text>;
+  if (allPins.length === 0) {
+    return <Text className="text-sm text-text-muted">No places or bookings with a location yet.</Text>;
   }
 
   return (
@@ -138,7 +162,7 @@ export function TripMap({ tripId }: { tripId: number }) {
             const group = mapPinGroupForTag(p.primaryTag) as MapPinGroup;
             return (
               <Marker
-                key={p.id}
+                key={`place-${p.id}`}
                 coordinate={{ latitude: p.lat, longitude: p.lng }}
                 title={p.name}
                 description={p.address ?? undefined}
@@ -146,8 +170,20 @@ export function TripMap({ tripId }: { tripId: number }) {
               />
             );
           })}
+          {filteredBookingPins.map((b) => {
+            const group = mapPinGroupForBookingType(b.type) as MapPinGroup;
+            return (
+              <Marker
+                key={`booking-${b.id}`}
+                coordinate={{ latitude: b.lat, longitude: b.lng }}
+                title={b.title}
+                description={b.address ?? undefined}
+                pinColor={MAP_PIN_COLORS[group]?.light ?? "#2a78d6"}
+              />
+            );
+          })}
         </MapView>
-        {filteredPins.length === 0 && (
+        {filteredPins.length === 0 && filteredBookingPins.length === 0 && (
           <View className="absolute inset-0 items-center justify-center bg-page/80 dark:bg-page-dark/80">
             <Text className="text-sm text-text-muted">No matches for these filters.</Text>
           </View>

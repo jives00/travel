@@ -3,6 +3,7 @@ import { View, Text } from "react-native";
 import type { BookingType, CreateBookingBody, Leg } from "@travel/types";
 import { BOOKING_TYPES, enumLabel } from "@travel/core";
 import { useCreateBooking } from "../lib/offlineMutations/bookings";
+import { AddressSearch } from "./AddressSearch";
 import { TextField, Button, SegmentedControl } from "./ui";
 
 const TYPE_SEGMENTS = BOOKING_TYPES.map((t) => ({ value: t.key as BookingType, label: t.label }));
@@ -13,8 +14,7 @@ function combine(date: string, time: string): string | undefined {
 }
 
 /** Create a booking. Port of web's booking-fields.tsx essentials (type, title,
- * dates/times, confirmation, price, notes, leg). Hotel-address autocomplete is
- * deferred; a booking can still carry a typed address later via edit. */
+ * dates/times, confirmation, price, notes, leg, address/meetup location). */
 export function BookingForm({
   tripId,
   legs,
@@ -37,6 +37,9 @@ export function BookingForm({
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("");
   const [legId, setLegId] = useState<number | null>(defaultLegId ?? null);
+  const [address, setAddress] = useState("");
+  const [lat, setLat] = useState<number | null>(null);
+  const [lng, setLng] = useState<number | null>(null);
 
   function save() {
     if (!title.trim()) return;
@@ -49,6 +52,9 @@ export function BookingForm({
       price: price.trim() ? Number(price) : undefined,
       currency: currency.trim().length === 3 ? currency.trim().toUpperCase() : undefined,
       legId: legId ?? undefined,
+      address: address || undefined,
+      lat: lat ?? undefined,
+      lng: lng ?? undefined,
     };
     createBooking.create(body);
     onSaved();
@@ -87,6 +93,17 @@ export function BookingForm({
           />
         </>
       )}
+
+      <View className="mb-4">
+        <AddressSearch
+          address={address}
+          onPicked={(r) => {
+            setAddress(r.address);
+            setLat(r.lat);
+            setLng(r.lng);
+          }}
+        />
+      </View>
 
       <Button title="Save booking" onPress={save} loading={createBooking.isPending} disabled={!title.trim()} />
     </View>

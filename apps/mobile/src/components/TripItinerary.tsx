@@ -9,6 +9,7 @@ import { useScheduleItem, useUnscheduleItem, useMoveItem } from "../lib/offlineM
 import { useRemoveBooking, useUpdateBooking } from "../lib/offlineMutations/bookings";
 import { useUpdatePlace, useRemovePlace } from "../lib/offlineMutations/places";
 import { AutocompleteSearch } from "./AutocompleteSearch";
+import { AddressSearch } from "./AddressSearch";
 import { BookingForm } from "./BookingForm";
 import { Card, Button, TextField, Sheet, SegmentedControl } from "./ui";
 
@@ -38,7 +39,7 @@ function bookingEntry(b: Booking): Entry {
     title: b.title,
     subtitle: t?.label ?? b.type,
     isPrivate: false,
-    completed: false,
+    completed: b.completed,
     bookingId: b.id,
   };
 }
@@ -391,6 +392,9 @@ function BookingEditFields({
   const [currency, setCurrency] = useState(booking?.currency ?? "");
   const [legId, setLegId] = useState<number | null>(booking?.legId ?? null);
   const [notes, setNotes] = useState(booking?.notes ?? "");
+  const [address, setAddress] = useState(booking?.address ?? "");
+  const [lat, setLat] = useState<number | null>(booking?.lat ?? null);
+  const [lng, setLng] = useState<number | null>(booking?.lng ?? null);
 
   if (!booking) {
     return <Text className="text-sm text-text-muted">Booking details unavailable.</Text>;
@@ -409,6 +413,9 @@ function BookingEditFields({
       currency: currency.trim().length === 3 ? currency.trim().toUpperCase() : undefined,
       legId: legId ?? undefined,
       notes: notes.trim() || undefined,
+      address: address || undefined,
+      lat: lat ?? undefined,
+      lng: lng ?? undefined,
     });
     onClose();
   }
@@ -460,6 +467,17 @@ function BookingEditFields({
 
       <TextField className="mb-3" label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={3} />
 
+      <View className="mb-4">
+        <AddressSearch
+          address={address}
+          onPicked={(r) => {
+            setAddress(r.address);
+            setLat(r.lat);
+            setLng(r.lng);
+          }}
+        />
+      </View>
+
       <View className="mb-4 flex-row items-center justify-between">
         <Button title="Save" onPress={save} loading={updateBooking.isPending} disabled={!title.trim()} />
         <Button variant="danger" title="Delete" onPress={remove} />
@@ -480,6 +498,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
   const scheduleItem = useScheduleItem(tripId);
   const unschedule = useUnscheduleItem(tripId);
   const move = useMoveItem(tripId);
+  const updateBooking = useUpdateBooking(tripId);
 
   const [addingLegId, setAddingLegId] = useState<number | null | undefined>(undefined);
   const [addMode, setAddMode] = useState<"place" | "booking" | "activity">("place");
@@ -604,8 +623,12 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
   // Marking complete backfills scheduledDate with today's local date only if
   // it wasn't already set — no time is tracked, per spec.
   function toggleComplete(e: Entry) {
-    if (e.itemId == null) return;
     const completed = !e.completed;
+    if (e.kind === "booking" && e.bookingId != null) {
+      updateBooking.update(e.bookingId, { completed });
+      return;
+    }
+    if (e.itemId == null) return;
     move.mutate({
       itemId: e.itemId,
       body: {
@@ -658,15 +681,13 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
                       : ""}
                   </Text>
                 </Pressable>
-                {e.kind !== "booking" && (
-                  <Pressable
-                    onPress={() => toggleComplete(e)}
-                    accessibilityLabel={e.completed ? "Mark not visited" : "Mark visited"}
-                    className="ml-2 h-8 w-8 items-center justify-center"
-                  >
-                    <Ionicons name={e.completed ? "checkbox" : "square-outline"} size={22} color={e.completed ? "#4f8f6a" : "#898781"} />
-                  </Pressable>
-                )}
+                <Pressable
+                  onPress={() => toggleComplete(e)}
+                  accessibilityLabel={e.completed ? "Mark not visited" : "Mark visited"}
+                  className="ml-2 h-8 w-8 items-center justify-center"
+                >
+                  <Ionicons name={e.completed ? "checkbox" : "square-outline"} size={22} color={e.completed ? "#4f8f6a" : "#898781"} />
+                </Pressable>
               </Card>
             ))
           )}
