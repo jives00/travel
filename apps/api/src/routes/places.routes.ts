@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { CreatePlaceBody, PlaceListQuery, UpdatePlaceBody } from "@travel/types";
-import { categoryForTag } from "@travel/core";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { autocomplete, placeDetails } from "../services/google-places.client";
@@ -14,8 +13,7 @@ interface PlaceRow {
   userId: number;
   googlePlaceId: string | null;
   name: string;
-  category: string;
-  primaryTag: string | null;
+  primaryTag: string;
   status: string;
   address: string | null;
   lat: number;
@@ -42,7 +40,7 @@ function serialize(row: PlaceRow) {
 
 // `p.` prefix used consistently so the optional trip_places JOIN in list() never collides
 const SELECT = `
-  SELECT p.id, p.user_id AS userId, p.google_place_id AS googlePlaceId, p.name, p.category, p.primary_tag AS primaryTag, p.status,
+  SELECT p.id, p.user_id AS userId, p.google_place_id AS googlePlaceId, p.name, p.primary_tag AS primaryTag, p.status,
          p.address, p.lat, p.lng, p.hours, p.hero_photo_url AS heroPhotoUrl,
          p.description, p.rating, p.user_ratings_total AS userRatingsTotal, p.website,
          p.google_types AS googleTypes, p.note,
@@ -77,7 +75,7 @@ export async function placesRoutes(app: FastifyInstance): Promise<void> {
   app.get("/", auth, async (request, reply) => {
     const parsed = PlaceListQuery.safeParse(request.query);
     if (!parsed.success) return reply.code(400).send({ error: "invalid query" });
-    const { category, status, q, tripId } = parsed.data;
+    const { status, q, tripId } = parsed.data;
 
     // `?` placeholders bind positionally by where they appear in the final SQL
     // string, not by JS push order — the JOIN clause is concatenated before
@@ -93,10 +91,6 @@ export async function placesRoutes(app: FastifyInstance): Promise<void> {
 
     const clauses = ["p.user_id = ?"];
     const whereParams: (string | number)[] = [userId(request)];
-    if (category) {
-      clauses.push("p.category = ?");
-      whereParams.push(category);
-    }
     if (status) {
       clauses.push("p.status = ?");
       whereParams.push(status);
@@ -144,14 +138,13 @@ export async function placesRoutes(app: FastifyInstance): Promise<void> {
     // value change on every duplicate hit is what makes MySQL report 2 there
     // (verified empirically), which is how `wasDuplicate` below is determined.
     const [result] = await getPool().query(
-      `INSERT INTO places (user_id, google_place_id, name, category, primary_tag, address, lat, lng, location, hours, hero_photo_url, description, rating, user_ratings_total, website, google_types, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ST_SRID(POINT(?, ?), 0), ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO places (user_id, google_place_id, name, primary_tag, address, lat, lng, location, hours, hero_photo_url, description, rating, user_ratings_total, website, google_types, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ST_SRID(POINT(?, ?), 0), ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), updated_at = NOW()`,
       [
         uid,
         body.googlePlaceId ?? null,
         body.name,
-        categoryForTag(body.primaryTag),
         body.primaryTag,
         body.address ?? null,
         body.lat,
@@ -209,10 +202,8 @@ export async function placesRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     if (body.primaryTag !== undefined) {
-      // `category` is never set directly by a client — it's re-derived here
-      // any time the primary tag changes, so the two never drift apart.
-      fields.push("primary_tag = ?", "category = ?");
-      params.push(body.primaryTag, categoryForTag(body.primaryTag));
+      fields.push("primary_tag = ?");
+      params.push(body.primaryTag);
     }
     if (body.googleTypes !== undefined) {
       fields.push("google_types = ?");

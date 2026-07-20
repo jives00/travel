@@ -1,49 +1,20 @@
 import { z } from "zod";
 
-export const PlaceCategory = z.enum([
-  "food",
-  "sight",
-  "activity",
-  "lodging",
-  "transit",
-  "shopping",
-  "other",
-]);
-export type PlaceCategory = z.infer<typeof PlaceCategory>;
-
 export const PlaceStatus = z.enum(["idea", "planned", "visited"]);
 export type PlaceStatus = z.infer<typeof PlaceStatus>;
 
-// Curated, closed set of subcategory tags — a place's single `primaryTag` is
-// drawn from this set. Keep in sync with packages/core's PLACE_TAGS (the
-// source of truth for label/icon; this is just the value set).
+// Curated, closed set of place tags — a place's single `primaryTag` is drawn
+// from this set. Keep in sync with packages/core's PLACE_TAGS (the source of
+// truth for label/icon; this is just the value set).
 export const PlaceTag = z.enum([
-  "neighborhood",
+  "activity",
   "day_trip",
-  "beach",
-  "park",
-  "garden",
-  "hiking_trail",
-  "viewpoint",
-  "waterfront",
-  "church",
-  "museum",
-  "architecture",
-  "historic_site",
-  "landmark",
-  "restaurant",
-  "cafe",
-  "bar",
-  "brewery_winery",
-  "market",
-  "nightlife",
-  "live_music_theater",
-  "train_station",
-  "airport",
-  "bus_ferry_station",
-  "stadium_venue",
-  "zoo_aquarium",
-  "spa",
+  "food_drinks",
+  "lodging",
+  "other",
+  "shopping",
+  "site",
+  "transit",
 ]);
 export type PlaceTag = z.infer<typeof PlaceTag>;
 
@@ -54,12 +25,8 @@ export const Place = z.object({
   userId: z.number().int(),
   googlePlaceId: z.string().nullable(),
   name: z.string(),
-  // Internal-only grouping (map-pin color, budget rollups) — always derived
-  // server-side from `primaryTag`, never set directly by a client.
-  category: PlaceCategory,
-  // The headline classification shown everywhere — required for places
-  // created after this field existed; null only on rows from before.
-  primaryTag: PlaceTag.nullable(),
+  // The headline classification shown everywhere.
+  primaryTag: PlaceTag,
   status: PlaceStatus,
   address: z.string().nullable(),
   lat: z.number(),
@@ -106,7 +73,6 @@ export type UpdatePlaceBody = z.infer<typeof UpdatePlaceBody>;
 
 export const PlaceListQuery = z.object({
   tripId: z.coerce.number().int().optional(),
-  category: PlaceCategory.optional(),
   status: PlaceStatus.optional(),
   listId: z.coerce.number().int().optional(),
   q: z.string().optional(),

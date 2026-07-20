@@ -3,7 +3,7 @@ import { CurrencyCode } from "./common";
 
 /** Budget categories — mirrors packages/core's EXPENSE_CATEGORIES (the source of
  * truth for label/icon; this is just the value set). Kept separate from
- * PlaceCategory/BookingType: budget needs "flights", places don't. */
+ * PlaceTag/BookingType: budget needs "flights", places don't. */
 export const ExpenseCategory = z.enum([
   "flights",
   "lodging",

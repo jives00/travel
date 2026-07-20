@@ -5,5 +5,4 @@ export * from "./tripStatus";
 export * from "./tripDates";
 export * from "./budget";
 export * from "./fx";
-export * from "./filters";
 export * from "./format";

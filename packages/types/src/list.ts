@@ -1,14 +1,4 @@
 import { z } from "zod";
-import { PlaceCategory, PlaceStatus } from "./place";
-
-/** One shape, evaluated by packages/core's matchesFilter (client-side, cached data)
- * and turned into a SQL WHERE by the same core's filterToSql (server-side). Same semantics both sides. */
-export const PlaceFilter = z.object({
-  category: PlaceCategory.optional(),
-  statusIn: z.array(PlaceStatus).optional(),
-  statusNotIn: z.array(PlaceStatus).optional(),
-});
-export type PlaceFilter = z.infer<typeof PlaceFilter>;
 
 export const CustomList = z.object({
   id: z.number().int(),

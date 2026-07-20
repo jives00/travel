@@ -188,8 +188,8 @@ async function main() {
         lng = geo.lng;
       }
       const [placeResult] = await getPool().query(
-        `INSERT INTO places (user_id, name, category, primary_tag, status, lat, lng, location)
-         VALUES (?, ?, 'activity', 'day_trip', 'planned', ?, ?, ST_SRID(POINT(?, ?), 0))`,
+        `INSERT INTO places (user_id, name, primary_tag, status, lat, lng, location)
+         VALUES (?, ?, 'day_trip', 'planned', ?, ?, ST_SRID(POINT(?, ?), 0))`,
         [user.id, dayTrip.name, lat, lng, lng, lat],
       );
       const placeId = (placeResult as { insertId: number }).insertId;

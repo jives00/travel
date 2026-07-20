@@ -59,9 +59,9 @@ const BOOKING_TYPE_TO_MAP_PIN_GROUP: Record<string, string> = {
   hotel: "lodging",
   train: "transit",
   car: "transit",
-  restaurant: "food",
-  event: "nightlife",
-  activity: "sights",
+  restaurant: "food_drinks",
+  event: "activity",
+  activity: "activity",
 };
 
 export function mapPinGroupForBookingType(type: string): string {
