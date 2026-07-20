@@ -51,43 +51,45 @@ export function SettingsForm() {
 
   return (
     <div className="max-w-md space-y-6">
-      <section>
+      <h1 className="text-2xl font-bold text-text-primary">Settings</h1>
+
+      <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Theme</h2>
         <div className="flex gap-2">
           <button
             onClick={() => setTheme("light")}
-            className={`rounded px-3 py-1 ${theme === "light" ? "bg-category-transit text-white" : "bg-surface text-text-secondary"}`}
+            className={`rounded px-3 py-1 ${theme === "light" ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"}`}
           >
             Light
           </button>
           <button
             onClick={() => setTheme("dark")}
-            className={`rounded px-3 py-1 ${theme === "dark" ? "bg-category-transit text-white" : "bg-surface text-text-secondary"}`}
+            className={`rounded px-3 py-1 ${theme === "dark" ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"}`}
           >
             Dark
           </button>
         </div>
       </section>
 
-      <section>
+      <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Distance unit</h2>
         <div className="flex gap-2">
           <button
             onClick={() => updateUnit("mi")}
-            className={`rounded px-3 py-1 ${settings.distanceUnit === "mi" ? "bg-category-transit text-white" : "bg-surface text-text-secondary"}`}
+            className={`rounded px-3 py-1 ${settings.distanceUnit === "mi" ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"}`}
           >
             Miles
           </button>
           <button
             onClick={() => updateUnit("km")}
-            className={`rounded px-3 py-1 ${settings.distanceUnit === "km" ? "bg-category-transit text-white" : "bg-surface text-text-secondary"}`}
+            className={`rounded px-3 py-1 ${settings.distanceUnit === "km" ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"}`}
           >
             Kilometers
           </button>
         </div>
       </section>
 
-      <section>
+      <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Default map travel mode</h2>
         <div className="flex gap-2">
           {(["walk", "transit", "drive"] as const).map((mode) => (
@@ -95,7 +97,7 @@ export function SettingsForm() {
               key={mode}
               onClick={() => updateTravelMode(mode)}
               className={`rounded px-3 py-1 capitalize ${
-                settings.defaultTravelMode === mode ? "bg-category-transit text-white" : "bg-surface text-text-secondary"
+                settings.defaultTravelMode === mode ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"
               }`}
             >
               {mode}
@@ -104,7 +106,7 @@ export function SettingsForm() {
         </div>
       </section>
 
-      <section>
+      <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Default route buffer</h2>
         <p className="mb-1 text-sm text-text-secondary">Currently {settings.defaultBufferM}m</p>
         <div className="flex gap-2">
@@ -121,13 +123,13 @@ export function SettingsForm() {
         </div>
       </section>
 
-      <section>
+      <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Home currency</h2>
         <p className="mb-1 text-sm text-text-secondary">Currently {settings.homeCurrency ?? "not set"}</p>
         <div className="flex gap-2">
           <input
-            className="w-24 rounded border border-gridline bg-transparent p-1 uppercase text-text-primary"
-            placeholder="USD"
+            className="w-24 rounded border border-gridline bg-transparent p-1 uppercase text-text-primary placeholder:normal-case"
+            placeholder="e.g. USD"
             maxLength={3}
             value={homeCurrency}
             onChange={(e) => setHomeCurrency(e.target.value)}
@@ -138,7 +140,7 @@ export function SettingsForm() {
         </div>
       </section>
 
-      <section>
+      <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Private itinerary items</h2>
         <p className="mb-2 text-sm text-text-secondary">
           Places and ideas can be marked private. Control whether they show up in your itinerary here.
@@ -146,20 +148,20 @@ export function SettingsForm() {
         <div className="flex gap-2">
           <button
             onClick={() => updateShowPrivateItems(true)}
-            className={`rounded px-3 py-1 ${settings.showPrivateItems ? "bg-category-transit text-white" : "bg-surface text-text-secondary"}`}
+            className={`rounded px-3 py-1 ${settings.showPrivateItems ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"}`}
           >
             Show private items
           </button>
           <button
             onClick={() => updateShowPrivateItems(false)}
-            className={`rounded px-3 py-1 ${!settings.showPrivateItems ? "bg-category-transit text-white" : "bg-surface text-text-secondary"}`}
+            className={`rounded px-3 py-1 ${!settings.showPrivateItems ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"}`}
           >
             Hide private items
           </button>
         </div>
       </section>
 
-      <section>
+      <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Data</h2>
         <button onClick={clearCache} className="text-sm text-status-critical">
           Clear local cache

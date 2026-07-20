@@ -57,7 +57,8 @@ export function ListsView() {
     await invalidate();
   }
 
-  async function resetList(listId: number) {
+  async function resetList(listId: number, listName: string) {
+    if (!window.confirm(`Uncheck every item in "${listName}"?`)) return;
     await travelApi.lists.reset(listId);
     await invalidate();
   }
@@ -136,7 +137,7 @@ export function ListsView() {
               <div className="flex items-center gap-3">
                 {list.tripId && <span className="text-xs text-text-muted">Trip-scoped</span>}
                 <button
-                  onClick={() => resetList(list.id)}
+                  onClick={() => resetList(list.id, list.name)}
                   className="text-xs text-text-secondary hover:text-text-primary"
                 >
                   Reset

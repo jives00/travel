@@ -235,16 +235,6 @@ export function TripBudget({ tripId }: { tripId: number }) {
 
       {/* Charts + line items, side by side on wide screens */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-        {/* Charts */}
-        <div className="space-y-6">
-          <ChartCard title="By category">
-            <CategoryBarChart data={categoryChartData} home={home} />
-          </ChartCard>
-          <ChartCard title="By city">
-            <CityPieChart data={cityChartData} home={home} />
-          </ChartCard>
-        </div>
-
         {/* Line items */}
         <div className="space-y-4">
           <div className="flex gap-2">
@@ -298,6 +288,16 @@ export function TripBudget({ tripId }: { tripId: number }) {
               </p>
             )}
           </section>
+        </div>
+
+        {/* Charts */}
+        <div className="space-y-6 self-start lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+          <ChartCard title="By category">
+            <CategoryBarChart data={categoryChartData} home={home} />
+          </ChartCard>
+          <ChartCard title="By city">
+            <CityPieChart data={cityChartData} home={home} />
+          </ChartCard>
         </div>
       </div>
 

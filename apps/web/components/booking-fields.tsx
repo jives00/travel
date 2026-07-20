@@ -261,40 +261,40 @@ export function BookingFields({
       </div>
 
       <div className="flex gap-2">
-        <label className="flex-1 text-xs text-text-muted">
+        <label className="min-w-0 flex-1 text-xs text-text-muted">
           Start date
           <input
             type="date"
-            className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
+            className="w-full min-w-0 rounded border border-gridline bg-transparent p-1 text-text-primary"
             value={form.startDate}
             onChange={(e) => onChange({ ...form, startDate: e.target.value })}
           />
         </label>
-        <label className="flex-1 text-xs text-text-muted">
+        <label className="min-w-0 flex-1 text-xs text-text-muted">
           Start time (optional)
           <input
             type="time"
-            className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
+            className="w-full min-w-0 rounded border border-gridline bg-transparent p-1 text-text-primary"
             value={form.startTime}
             onChange={(e) => onChange({ ...form, startTime: e.target.value })}
           />
         </label>
       </div>
       <div className="flex gap-2">
-        <label className="flex-1 text-xs text-text-muted">
+        <label className="min-w-0 flex-1 text-xs text-text-muted">
           End date
           <input
             type="date"
-            className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
+            className="w-full min-w-0 rounded border border-gridline bg-transparent p-1 text-text-primary"
             value={form.endDate}
             onChange={(e) => onChange({ ...form, endDate: e.target.value })}
           />
         </label>
-        <label className="flex-1 text-xs text-text-muted">
+        <label className="min-w-0 flex-1 text-xs text-text-muted">
           End time (optional)
           <input
             type="time"
-            className="w-full rounded border border-gridline bg-transparent p-1 text-text-primary"
+            className="w-full min-w-0 rounded border border-gridline bg-transparent p-1 text-text-primary"
             value={form.endTime}
             onChange={(e) => onChange({ ...form, endTime: e.target.value })}
           />
@@ -351,6 +351,7 @@ export function BookingFields({
       <textarea
         className="w-full rounded border border-gridline bg-transparent p-2 text-text-primary"
         placeholder="Notes"
+        rows={3}
         value={form.notes}
         onChange={(e) => onChange({ ...form, notes: e.target.value })}
       />

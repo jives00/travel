@@ -201,7 +201,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
-        className={`max-h-[90vh] w-full ${wide ? "max-w-2xl" : "max-w-lg"} overflow-y-auto rounded bg-page p-4 shadow-lg`}
+        className={`max-h-[90vh] w-full ${wide ? "max-w-2xl" : "max-w-lg"} overflow-y-auto overflow-x-hidden rounded bg-page p-4 shadow-lg`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

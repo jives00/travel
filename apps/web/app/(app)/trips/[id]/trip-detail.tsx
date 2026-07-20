@@ -351,7 +351,8 @@ export function TripDetail({ tripId }: { tripId: number }) {
                 <button
                   onClick={saveName}
                   disabled={savingName || !name.trim() || name.trim() === trip.name}
-                  className="rounded bg-category-transit px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+                  title={!savingName && name.trim() === trip.name ? "No changes to save" : undefined}
+                  className="rounded bg-category-transit px-3 py-1 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Save
                 </button>

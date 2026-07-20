@@ -9,6 +9,8 @@ import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { googleMapsUrl } from "@/lib/mapInfoWindow";
 import { sessionToken as makeSessionToken } from "@/lib/sessionToken";
+import { DARK_MAP_STYLE } from "@/lib/googleMapDarkStyle";
+import { useTheme } from "@/lib/theme-context";
 
 // Same inline-SVG pin icon as trip-map.tsx / the old map-view — a real
 // <img>-based icon, not a google.maps.Symbol path (Symbol.path only supports
@@ -26,7 +28,7 @@ type MapMarker = {
   addListener: (event: string, handler: () => void) => void;
   setMap: (map: unknown) => void;
 };
-type MapInstance = object;
+type MapInstance = { setOptions: (opts: Record<string, unknown>) => void };
 type InfoWindowInstance = { setContent: (content: string | Node) => void; open: (opts: Record<string, unknown>) => void };
 
 // A world tile is 256 * 2^zoom px wide — if the container is wider than that,
@@ -342,6 +344,7 @@ export function MapView() {
     want_to_visit: true,
   });
   const [showAddForm, setShowAddForm] = useState(false);
+  const { theme } = useTheme();
 
   const mapRef = useRef<HTMLDivElement>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
@@ -413,9 +416,16 @@ export function MapView() {
         latLngBounds: { north: 85, south: -85, west: -180, east: 180 },
         strictBounds: true,
       },
+      styles: theme === "dark" ? DARK_MAP_STYLE : undefined,
     });
     infoWindowRef.current = new google.maps.InfoWindow({});
-  }, [scriptLoaded]);
+  }, [scriptLoaded, theme]);
+
+  // The map above is only ever constructed once (guarded by mapInstance.current),
+  // so a theme flip after that needs to restyle the existing instance directly.
+  useEffect(() => {
+    mapInstance.current?.setOptions({ styles: theme === "dark" ? DARK_MAP_STYLE : [] });
+  }, [theme]);
 
   // Rebuilds markers on the existing map instance whenever the visible point
   // set changes (filter toggles, data refresh) — reusing the same map instance

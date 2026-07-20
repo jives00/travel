@@ -7,6 +7,8 @@ import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { infoWindowHtml } from "@/lib/mapInfoWindow";
+import { DARK_MAP_STYLE } from "@/lib/googleMapDarkStyle";
+import { useTheme } from "@/lib/theme-context";
 
 // Same inline-SVG pin icon as the standalone /map page's MapView — a real
 // <img>-based icon, not a google.maps.Symbol path (Symbol.path only supports
@@ -30,7 +32,7 @@ type MapMarker = {
   setMap: (map: unknown) => void;
 };
 
-type MapInstance = { fitBounds: (bounds: unknown) => void };
+type MapInstance = { fitBounds: (bounds: unknown) => void; setOptions: (opts: Record<string, unknown>) => void };
 type InfoWindowInstance = { setContent: (html: string) => void; open: (opts: Record<string, unknown>) => void };
 
 type GoogleMaps = {
@@ -62,6 +64,7 @@ export function TripMap({
   const { data: items } = useQuery(travelApi.queries.itineraryQuery(tripId));
   const { data: settings } = useQuery(travelApi.queries.settingsQuery());
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
+  const { theme } = useTheme();
   const mapRef = useRef<HTMLDivElement>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const markersByPlaceId = useRef<Map<number, MapMarker>>(new Map());
@@ -190,12 +193,19 @@ export function TripMap({
       // Google's Maps Platform TOS and can't be removed — this only hides
       // the keyboard-shortcuts help text, which is optional UI.
       keyboardShortcuts: false,
+      styles: theme === "dark" ? DARK_MAP_STYLE : undefined,
     });
     // One shared InfoWindow, repositioned/re-filled per click — matches how
     // Google Maps itself behaves (clicking a new pin replaces the open card
     // rather than stacking multiple).
     infoWindowRef.current = new google.maps.InfoWindow({});
-  }, [scriptLoaded, hasAnyMarker, filteredPlaces, visiblePlaces, filteredBookingMarkers, bookingMarkers]);
+  }, [scriptLoaded, hasAnyMarker, filteredPlaces, visiblePlaces, filteredBookingMarkers, bookingMarkers, theme]);
+
+  // The map above is only ever constructed once (guarded by mapInstance.current),
+  // so a theme flip after that needs to restyle the existing instance directly.
+  useEffect(() => {
+    mapInstance.current?.setOptions({ styles: theme === "dark" ? DARK_MAP_STYLE : [] });
+  }, [theme]);
 
   // Rebuilds markers and re-fits bounds on the *existing* map instance
   // whenever the filtered set changes — reusing the same map (instead of
