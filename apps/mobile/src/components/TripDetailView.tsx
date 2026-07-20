@@ -46,7 +46,6 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const addLeg = useAddLeg(tripId);
   const deleteLeg = useDeleteLeg(tripId);
 
-  const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [backdropDraft, setBackdropDraft] = useState("");
@@ -79,7 +78,6 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
 
   function saveName() {
     const v = nameDraft.trim();
-    setEditingName(false);
     if (v && v !== trip!.name) updateTrip.mutate({ id: tripId, body: { name: v } });
   }
 
@@ -100,36 +98,28 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
           <View className="h-8 bg-black/55" />
         </View>
         <View className="absolute inset-0 justify-between p-4">
-          <View className="flex-row justify-end">
-            <Pressable onPress={() => setEditing(true)} className="rounded bg-black/40 px-2 py-1">
-              <Text className="text-xs text-white">Edit</Text>
+          <View className="flex-row justify-end gap-2">
+            <Pressable
+              onPress={() => {
+                setNameDraft(trip.name);
+                setEditing(true);
+              }}
+              className="rounded-lg bg-white/90 px-4 py-2"
+            >
+              <Text className="text-sm font-semibold text-text-primary">Edit Trip</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => navigation.navigate("TripBudget", { tripId })}
+              className="rounded-lg bg-category-transit px-4 py-2"
+            >
+              <Text className="text-sm font-semibold text-white">Trip Budget</Text>
             </Pressable>
           </View>
           <View>
-            {editingName ? (
-              <View className="flex-row items-center gap-2">
-                <TextField
-                  className="flex-1"
-                  autoFocus
-                  value={nameDraft}
-                  onChangeText={setNameDraft}
-                  onSubmitEditing={saveName}
-                />
-                <Button title="Save" onPress={saveName} />
-              </View>
-            ) : (
-              <Pressable
-                onPress={() => {
-                  setNameDraft(trip.name);
-                  setEditingName(true);
-                }}
-              >
-                <Text className="text-2xl font-bold text-white">
-                  {trip.isPrimary ? "★ " : ""}
-                  {trip.name}
-                </Text>
-              </Pressable>
-            )}
+            <Text className="text-2xl font-bold text-white">
+              {trip.isPrimary ? "★ " : ""}
+              {trip.name}
+            </Text>
             {cityChain ? <Text className="text-sm text-white/80">{cityChain}</Text> : null}
             <Text className="mt-1 text-xl font-bold text-white">{countdown.headline}</Text>
             <Text className="text-xs text-white/80">{countdown.subline}</Text>
@@ -149,13 +139,6 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
           </Card>
         )}
 
-        <Pressable onPress={() => navigation.navigate("TripBudget", { tripId })}>
-          <Card className="mb-4 flex-row items-center justify-between">
-            <Text className="font-medium text-text-primary dark:text-text-primary-dark">Budget</Text>
-            <Text className="text-text-muted">›</Text>
-          </Card>
-        </Pressable>
-
         <TripWeather tripId={tripId} />
 
         <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Itinerary</Text>
@@ -168,6 +151,12 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
       {/* Edit sheet */}
       <Sheet visible={editing} onClose={() => setEditing(false)}>
         <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">Edit trip</Text>
+
+        <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">Name</Text>
+        <View className="mb-4 flex-row gap-2">
+          <TextField className="flex-1" value={nameDraft} onChangeText={setNameDraft} onSubmitEditing={saveName} />
+          <Button title="Save" onPress={saveName} disabled={!nameDraft.trim() || nameDraft.trim() === trip.name} />
+        </View>
 
         <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">Status</Text>
         <SegmentedControl

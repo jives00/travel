@@ -101,41 +101,16 @@ function computeCountdown(trip: Trip, sortedLegs: Leg[], bookings: Booking[], to
 }
 
 function HeroImage({
-  tripId,
   name,
   heroImageUrl,
-  onChangeBackdrop,
-  editButton,
+  hero,
+  topRight,
 }: {
-  tripId: number;
   name: string;
   heroImageUrl: string | null;
-  onChangeBackdrop: () => void;
-  editButton: React.ReactNode;
+  hero: { url: string | null; city: string | null } | undefined;
+  topRight: React.ReactNode;
 }) {
-  // A user-set backdrop is fixed — skip the Unsplash fetch entirely (via
-  // `enabled`, not a conditional hook call) rather than pay for a lookup
-  // whose result is about to be ignored.
-  const { data: hero } = useQuery({
-    ...travelApi.queries.heroImageQuery(tripId),
-    enabled: !heroImageUrl,
-  });
-
-  // Edit + Change backdrop share one row in the top-right corner — the title
-  // occupies top-left and the countdown occupies the bottom, so top-right is
-  // the only free spot for these small utility controls.
-  const topRightRow = (
-    <div className="flex items-center gap-2">
-      {editButton}
-      <button
-        onClick={onChangeBackdrop}
-        className="rounded bg-black/40 px-2 py-1 text-xs text-white/80 hover:text-white"
-      >
-        Change backdrop
-      </button>
-    </div>
-  );
-
   if (heroImageUrl) {
     // Arbitrary user-supplied URL/host — deliberately a plain <img>, not
     // next/image, so this doesn't need next.config.mjs's remotePatterns
@@ -143,7 +118,7 @@ function HeroImage({
     return (
       <>
         <img src={heroImageUrl} alt={name} className="h-full w-full object-cover" />
-        <div className="absolute top-2 right-2">{topRightRow}</div>
+        <div className="absolute top-2 right-2">{topRight}</div>
       </>
     );
   }
@@ -152,27 +127,13 @@ function HeroImage({
     return (
       <>
         <Image src={hero.url} alt={hero.city ?? name} fill priority sizes="100vw" className="object-cover" />
-        <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
-          {topRightRow}
-          {hero.photographerName && hero.photographerUrl && (
-            // Unsplash API Guidelines require crediting the photographer with a
-            // link back whenever a photo from their API is displayed.
-            <a
-              href={`${hero.photographerUrl}?utm_source=travel&utm_medium=referral`}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded bg-black/40 px-2 py-1 text-xs text-white/80 hover:text-white"
-            >
-              Photo: {hero.photographerName} / Unsplash
-            </a>
-          )}
-        </div>
+        <div className="absolute top-2 right-2">{topRight}</div>
       </>
     );
   }
   return (
     <div className="relative h-full w-full bg-gradient-to-br from-category-transit via-category-lodging to-category-sight opacity-80">
-      <div className="absolute top-2 right-2">{topRightRow}</div>
+      <div className="absolute top-2 right-2">{topRight}</div>
     </div>
   );
 }
@@ -183,8 +144,15 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
   const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
-  const [editingName, setEditingName] = useState(false);
+  // A user-set backdrop is fixed — skip the Unsplash fetch entirely (via
+  // `enabled`, not a conditional hook call) rather than pay for a lookup
+  // whose result is about to be ignored.
+  const { data: hero } = useQuery({
+    ...travelApi.queries.heroImageQuery(tripId),
+    enabled: !!trip && !trip.heroImageUrl,
+  });
   const [name, setName] = useState("");
+  const [savingName, setSavingName] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
   const [togglingPrimary, setTogglingPrimary] = useState(false);
@@ -196,10 +164,14 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const [activeLegId, setActiveLegId] = useState<number | null>(null);
 
   async function saveName() {
-    if (!name.trim()) return setEditingName(false);
-    await travelApi.trips.update(tripId, { name: name.trim() });
-    await queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
-    setEditingName(false);
+    if (!name.trim() || name.trim() === trip?.name) return;
+    setSavingName(true);
+    try {
+      await travelApi.trips.update(tripId, { name: name.trim() });
+      await queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
+    } finally {
+      setSavingName(false);
+    }
   }
 
   async function saveBackdrop() {
@@ -300,108 +272,135 @@ export function TripDetail({ tripId }: { tripId: number }) {
           gradient regardless of image content or theme. */}
       <div className="relative -mx-6 -mt-6 h-64 overflow-hidden sm:h-72 md:h-80">
         <HeroImage
-          tripId={tripId}
           name={trip.name}
           heroImageUrl={trip.heroImageUrl}
-          onChangeBackdrop={() => {
-            setBackdropUrl(trip.heroImageUrl ?? "");
-            setEditingBackdrop(true);
-          }}
-          editButton={
-            <button
-              onClick={() => setEditingTrip(true)}
-              className="rounded bg-black/40 px-2 py-1 text-xs text-white/80 hover:text-white"
-            >
-              Edit
-            </button>
+          hero={hero}
+          topRight={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setName(trip.name);
+                  setEditingTrip(true);
+                }}
+                className="rounded-lg bg-white/90 px-4 py-2 text-sm font-semibold text-text-primary shadow hover:bg-white"
+              >
+                Edit Trip
+              </button>
+              <Link
+                href={`/trips/${tripId}/budget`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-category-transit px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90"
+              >
+                <span className="material-symbols-outlined text-base" aria-hidden="true">
+                  payments
+                </span>
+                Trip Budget
+              </Link>
+            </div>
           }
         />
         {/* Narrow left-side darkening just for the overlaid text's contrast —
-            fades out well before the right-hand Edit/Change-backdrop area, so
-            most of the image stays untouched. */}
+            fades out well before the right-hand Edit Trip/Trip Budget buttons,
+            so most of the image stays untouched. */}
         <div className="pointer-events-none absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-black/60 to-transparent" />
         {/* pointer-events-none so this full-cover overlay doesn't block clicks
-            on HeroImage's Edit/Change-backdrop buttons underneath it (they're
-            earlier in the DOM, so this later sibling paints on top) — restored
-            to auto only on the actual interactive pieces below. */}
+            on HeroImage's buttons underneath it (they're earlier in the DOM,
+            so this later sibling paints on top) — restored to auto only on
+            the actual interactive pieces below. */}
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 md:p-6">
           <div>
-            {editingName ? (
-              <div className="pointer-events-auto flex gap-2">
-                <input
-                  autoFocus
-                  className="rounded border border-white/40 bg-black/40 p-1 text-3xl font-bold text-white"
-                  defaultValue={trip.name}
-                  onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveName()}
-                />
-                <button onClick={saveName} className="text-sm font-medium text-white underline">
-                  Save
-                </button>
-              </div>
-            ) : (
-              <h1
-                className="pointer-events-auto inline-block w-fit cursor-pointer text-3xl font-bold text-white drop-shadow md:text-4xl"
-                onClick={() => {
-                  setName(trip.name);
-                  setEditingName(true);
-                }}
-              >
-                {trip.name}
-              </h1>
-            )}
+            <h1 className="text-3xl font-bold text-white drop-shadow md:text-4xl">{trip.name}</h1>
             {cityChain && <p className="text-sm text-white/80 md:text-base">{cityChain}</p>}
           </div>
           <div>
             <div className="text-3xl font-bold text-white md:text-4xl">{countdown.headline}</div>
             <div className="mt-1 text-sm text-white/80">{countdown.subline}</div>
+            {!trip.heroImageUrl && hero?.photographerName && hero?.photographerUrl && (
+              // Unsplash API Guidelines require crediting the photographer with a
+              // link back whenever a photo from their API is displayed.
+              <a
+                href={`${hero.photographerUrl}?utm_source=travel&utm_medium=referral`}
+                target="_blank"
+                rel="noreferrer"
+                className="pointer-events-auto mt-1 inline-block text-xs text-white/60 hover:text-white/90"
+              >
+                Photo: {hero.photographerName} / Unsplash
+              </a>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Link
-          href={`/trips/${tripId}/budget`}
-          className="inline-flex items-center gap-1 rounded border border-gridline bg-surface px-3 py-1.5 text-sm font-medium text-text-primary hover:border-category-transit"
-        >
-          <span className="material-symbols-outlined text-base" aria-hidden="true">
-            payments
-          </span>
-          Budget
-        </Link>
-      </div>
-
-      {editingBackdrop && (
-        <div className="flex flex-wrap items-center gap-2 rounded border border-gridline bg-surface p-3 text-sm">
-          <input
-            autoFocus
-            className="min-w-[16rem] flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
-            placeholder="Image URL"
-            value={backdropUrl}
-            onChange={(e) => setBackdropUrl(e.target.value)}
-          />
-          <button
-            onClick={saveBackdrop}
-            disabled={savingBackdrop || !backdropUrl.trim()}
-            className="rounded bg-category-transit px-3 py-1 font-medium text-white disabled:opacity-50"
-          >
-            Save
-          </button>
-          {trip.heroImageUrl && (
-            <button onClick={useUnsplashBackdrop} disabled={savingBackdrop} className="text-text-secondary disabled:opacity-50">
-              Use Unsplash instead
-            </button>
-          )}
-          <button onClick={() => setEditingBackdrop(false)} className="text-text-secondary">
-            Cancel
-          </button>
-        </div>
-      )}
-
       {editingTrip && (
-        <Modal onClose={() => setEditingTrip(false)}>
+        <Modal
+          onClose={() => {
+            setEditingTrip(false);
+            setEditingBackdrop(false);
+          }}
+        >
           <h2 className="mb-3 text-lg font-semibold text-text-primary">Edit trip</h2>
           <div className="space-y-3">
+            <label className="block text-sm text-text-secondary">
+              Name
+              <div className="mt-1 flex gap-2">
+                <input
+                  className="flex-1 rounded border border-gridline bg-transparent p-2 text-sm font-medium text-text-primary"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && saveName()}
+                />
+                <button
+                  onClick={saveName}
+                  disabled={savingName || !name.trim() || name.trim() === trip.name}
+                  className="rounded bg-category-transit px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+            </label>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-text-secondary">Backdrop image</span>
+                {!editingBackdrop && (
+                  <button
+                    onClick={() => {
+                      setBackdropUrl(trip.heroImageUrl ?? "");
+                      setEditingBackdrop(true);
+                    }}
+                    className="text-sm font-medium text-category-transit"
+                  >
+                    Change backdrop
+                  </button>
+                )}
+              </div>
+              {editingBackdrop && (
+                <div className="flex flex-wrap items-center gap-2 rounded border border-gridline bg-surface p-2 text-sm">
+                  <input
+                    autoFocus
+                    className="min-w-[14rem] flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
+                    placeholder="Image URL"
+                    value={backdropUrl}
+                    onChange={(e) => setBackdropUrl(e.target.value)}
+                  />
+                  <button
+                    onClick={saveBackdrop}
+                    disabled={savingBackdrop || !backdropUrl.trim()}
+                    className="rounded bg-category-transit px-3 py-1 font-medium text-white disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                  {trip.heroImageUrl && (
+                    <button onClick={useUnsplashBackdrop} disabled={savingBackdrop} className="text-text-secondary disabled:opacity-50">
+                      Use Unsplash instead
+                    </button>
+                  )}
+                  <button onClick={() => setEditingBackdrop(false)} className="text-text-secondary">
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+
             <label className="block text-sm text-text-secondary">
               Status
               <select
@@ -432,7 +431,13 @@ export function TripDetail({ tripId }: { tripId: number }) {
               Archive trip
             </button>
           </div>
-          <button onClick={() => setEditingTrip(false)} className="mt-4 text-sm text-text-secondary">
+          <button
+            onClick={() => {
+              setEditingTrip(false);
+              setEditingBackdrop(false);
+            }}
+            className="mt-4 text-sm text-text-secondary"
+          >
             Close
           </button>
         </Modal>
