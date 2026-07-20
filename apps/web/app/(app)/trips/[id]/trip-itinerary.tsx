@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, ItineraryItem, Leg, Place, PlaceTag } from "@travel/types";
-import { BOOKING_TYPES, PLACE_TAGS, enumLabel, mapPinGroupForTag, todayDateString } from "@travel/core";
+import { BOOKING_TYPES, PLACE_TAGS, enumLabel, mapPinGroupForTag, mapPinGroupForBookingType, todayDateString } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
 import { useTheme } from "@/lib/theme-context";
@@ -71,8 +71,8 @@ interface Entry {
   // Only place/idea entries can be marked private (backed by itinerary_items.
   // is_private) — bookings never carry this flag.
   isPrivate: boolean;
-  // Only place/idea entries can be checked off done/visited (backed by
-  // itinerary_items.completed) — bookings never carry this flag.
+  // Place/idea entries are checked off via itinerary_items.completed; booking
+  // entries are checked off via bookings.completed — same UI, different column.
   completed: boolean;
   // Human-readable grouping label used only by the "Category" sort mode —
   // a place's primary tag, a booking's type, or "Idea".
@@ -99,8 +99,9 @@ function bookingEntry(b: Booking): Entry {
     icon: bookingType?.iconName,
     iconLabel: bookingType?.label,
     isPrivate: false,
-    completed: false,
+    completed: b.completed,
     categoryLabel: bookingType?.label ?? b.type,
+    mapPinGroup: mapPinGroupForBookingType(b.type) as MapPinGroup,
     booking: b,
   };
 }
@@ -225,12 +226,11 @@ function EntryRow({
   onHoverPlace?: (placeId: number | null) => void;
 }) {
   const { theme } = useTheme();
-  // Only place entries carry a map-pin group — bookings/ideas keep the
-  // plain muted icon (no colored circle) since they have no map marker.
+  // Places and bookings both carry a map-pin group — colors the icon circle
+  // to match its marker on the map; plain ideas keep the muted text subtitle.
   const pinColor = entry.mapPinGroup ? (MAP_PIN_COLORS[entry.mapPinGroup] ?? MAP_PIN_COLORS.other)[theme] : undefined;
-  // Only place/idea entries can be checked off — bookings have no `completed`
-  // column and keep their own time field (startAt/endAt), so no checkbox.
-  const completable = entry.kind !== "booking";
+  // Every entry kind can be checked off done/visited now.
+  const completable = true;
   const done = entry.completed || fading;
 
   return (
@@ -1234,6 +1234,44 @@ export function TripItinerary({
   const [newCity, setNewCity] = useState("");
   const [addingCity, setAddingCity] = useState(false);
   const [legSortMode, setLegSortMode] = useState<Record<number, LegSortMode>>({});
+  // Every section (Pre-Trip, Post-Trip, each city) expands by default; a
+  // collapse choice is remembered per-trip in localStorage so it survives
+  // across sessions. Keys are "pre", "post", or `leg-<id>`.
+  const collapsedSectionsStorageKey = `travel:itinerary:collapsedSections:${tripId}`;
+  // Starts empty (matching SSR, where there's no localStorage) so the first
+  // client render matches the server-rendered HTML — reading localStorage
+  // straight into useState's initializer would hydrate with different markup
+  // than the server sent and produce a mismatch. The real value loads in an
+  // effect right after mount instead.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [collapsedSectionsLoaded, setCollapsedSectionsLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(collapsedSectionsStorageKey);
+      if (raw) setCollapsedSections(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      // localStorage unavailable (private browsing, etc.) — falls back to
+      // all-expanded for this session.
+    }
+    setCollapsedSectionsLoaded(true);
+  }, [collapsedSectionsStorageKey]);
+  useEffect(() => {
+    if (!collapsedSectionsLoaded) return;
+    try {
+      window.localStorage.setItem(collapsedSectionsStorageKey, JSON.stringify([...collapsedSections]));
+    } catch {
+      // localStorage unavailable (private browsing, etc.) — collapse state
+      // just won't persist this session.
+    }
+  }, [collapsedSections, collapsedSectionsLoaded, collapsedSectionsStorageKey]);
+  function toggleSection(key: string) {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
   // Entries mid-fade after being checked off — kept faded-in-place until the
   // animation finishes, so the fade is visible before the item jumps to the
   // bottom of the list (an instant reorder alongside the opacity change would
@@ -1274,19 +1312,24 @@ export function TripItinerary({
   // reorders the entry to the bottom.
   const FADE_MS = 400;
   async function toggleComplete(entry: Entry) {
-    if (!entry.item) return;
     const completed = !entry.completed;
     if (completed) setFadingKeys((prev) => new Set(prev).add(entry.key));
-    const move = travelApi.itinerary.move(tripId, entry.item.id, {
-      completed,
-      ...(completed && !entry.scheduledDate ? { scheduledDate: todayDateString() } : {}),
-    });
+    const save =
+      entry.kind === "booking" && entry.booking
+        ? travelApi.bookings.update(tripId, entry.booking.id, { completed })
+        : entry.item
+          ? travelApi.itinerary.move(tripId, entry.item.id, {
+              completed,
+              ...(completed && !entry.scheduledDate ? { scheduledDate: todayDateString() } : {}),
+            })
+          : undefined;
+    if (!save) return;
     if (completed) {
-      await Promise.all([move, new Promise((resolve) => setTimeout(resolve, FADE_MS))]);
+      await Promise.all([save, new Promise((resolve) => setTimeout(resolve, FADE_MS))]);
     } else {
-      await move;
+      await save;
     }
-    await queryClient.invalidateQueries({ queryKey: ["itinerary", tripId] });
+    await queryClient.invalidateQueries({ queryKey: entry.kind === "booking" ? ["bookings", tripId] : ["itinerary", tripId] });
     setFadingKeys((prev) => {
       const next = new Set(prev);
       next.delete(entry.key);
@@ -1414,65 +1457,92 @@ export function TripItinerary({
     <div className="space-y-4">
       {preEntries.length > 0 && (
         <section ref={sectionRef("pre")} className="rounded border border-gridline bg-surface p-4">
-          <h3 className="mb-2 text-xl font-bold text-text-primary">Pre-Trip</h3>
-          <ul className="space-y-1">
-            {preEntries.map(renderEntry)}
-          </ul>
+          <div className="flex items-start gap-1">
+            <button
+              onClick={() => toggleSection("pre")}
+              title={!collapsedSections.has("pre") ? "Collapse Pre-Trip" : "Expand Pre-Trip"}
+              aria-label={!collapsedSections.has("pre") ? "Collapse Pre-Trip" : "Expand Pre-Trip"}
+              className="mt-0.5 shrink-0 text-text-muted hover:text-text-primary"
+            >
+              <span className="material-symbols-outlined text-xl" aria-hidden="true">
+                {!collapsedSections.has("pre") ? "expand_more" : "chevron_right"}
+              </span>
+            </button>
+            <h3 className="mb-2 text-xl font-bold text-text-primary">Pre-Trip</h3>
+          </div>
+          {!collapsedSections.has("pre") && <ul className="space-y-1">{preEntries.map(renderEntry)}</ul>}
         </section>
       )}
 
       {sortedLegs.map((leg) => {
         const sortMode = legSortMode[leg.id] ?? "date";
         const legEntries = sortLegEntries(groups.get(`leg-${leg.id}`) ?? [], sortMode);
+        const legKey = `leg-${leg.id}`;
+        const expanded = !collapsedSections.has(legKey);
         return (
           <section key={leg.id} ref={sectionRef(String(leg.id))} className="rounded border border-gridline bg-surface p-4">
             <div className="flex items-start justify-between gap-2">
-              <LegHeader
-                tripId={tripId}
-                leg={leg}
-                hotelBooking={hotelBookingByLegId.get(leg.id)}
-                onEditHotel={(booking) => setEditingEntry(bookingEntry(booking))}
-              />
-              <div className="flex shrink-0 flex-col items-end gap-1">
+              <div className="flex min-w-0 items-start gap-1">
                 <button
-                  onClick={() => setAddingLegId(leg.id)}
-                  title={`Add to ${leg.city}`}
-                  aria-label={`Add to ${leg.city}`}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-category-transit text-white transition-all duration-150 hover:scale-110 hover:brightness-110 hover:shadow-md"
+                  onClick={() => toggleSection(legKey)}
+                  title={expanded ? `Collapse ${leg.city}` : `Expand ${leg.city}`}
+                  aria-label={expanded ? `Collapse ${leg.city}` : `Expand ${leg.city}`}
+                  className="mt-1 shrink-0 text-text-muted hover:text-text-primary"
                 >
                   <span className="material-symbols-outlined text-xl" aria-hidden="true">
-                    add
+                    {expanded ? "expand_more" : "chevron_right"}
                   </span>
                 </button>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setLegSortMode((prev) => ({ ...prev, [leg.id]: sortMode === "alpha" ? "date" : "alpha" }))}
-                    className={`rounded-full px-2 py-0.5 text-xs ${
-                      sortMode === "alpha" ? "bg-category-transit text-white" : "bg-page text-text-secondary hover:text-text-primary"
-                    }`}
-                  >
-                    A-Z
-                  </button>
-                  <button
-                    onClick={() =>
-                      setLegSortMode((prev) => ({ ...prev, [leg.id]: sortMode === "category" ? "date" : "category" }))
-                    }
-                    className={`rounded-full px-2 py-0.5 text-xs ${
-                      sortMode === "category" ? "bg-category-transit text-white" : "bg-page text-text-secondary hover:text-text-primary"
-                    }`}
-                  >
-                    Category
-                  </button>
-                </div>
+                <LegHeader
+                  tripId={tripId}
+                  leg={leg}
+                  hotelBooking={hotelBookingByLegId.get(leg.id)}
+                  onEditHotel={(booking) => setEditingEntry(bookingEntry(booking))}
+                />
               </div>
+              {expanded && (
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <button
+                    onClick={() => setAddingLegId(leg.id)}
+                    title={`Add to ${leg.city}`}
+                    aria-label={`Add to ${leg.city}`}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-category-transit text-white transition-all duration-150 hover:scale-110 hover:brightness-110 hover:shadow-md"
+                  >
+                    <span className="material-symbols-outlined text-xl" aria-hidden="true">
+                      add
+                    </span>
+                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setLegSortMode((prev) => ({ ...prev, [leg.id]: sortMode === "alpha" ? "date" : "alpha" }))}
+                      className={`rounded-full px-2 py-0.5 text-xs ${
+                        sortMode === "alpha" ? "bg-category-transit text-white" : "bg-page text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      A-Z
+                    </button>
+                    <button
+                      onClick={() =>
+                        setLegSortMode((prev) => ({ ...prev, [leg.id]: sortMode === "category" ? "date" : "category" }))
+                      }
+                      className={`rounded-full px-2 py-0.5 text-xs ${
+                        sortMode === "category" ? "bg-category-transit text-white" : "bg-page text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      Category
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            {legEntries.length === 0 ? (
-              <p className="text-sm text-text-muted">Nothing here yet.</p>
-            ) : (
-              <ul className="space-y-1">
-                {legEntries.map(renderEntry)}
-              </ul>
-            )}
+            {expanded &&
+              (legEntries.length === 0 ? (
+                <p className="text-sm text-text-muted">Nothing here yet.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {legEntries.map(renderEntry)}
+                </ul>
+              ))}
           </section>
         );
       })}
@@ -1495,10 +1565,20 @@ export function TripItinerary({
 
       {postEntries.length > 0 && (
         <section ref={sectionRef("post")} className="rounded border border-gridline bg-surface p-4">
-          <h3 className="mb-2 text-xl font-bold text-text-primary">Post-Trip</h3>
-          <ul className="space-y-1">
-            {postEntries.map(renderEntry)}
-          </ul>
+          <div className="flex items-start gap-1">
+            <button
+              onClick={() => toggleSection("post")}
+              title={!collapsedSections.has("post") ? "Collapse Post-Trip" : "Expand Post-Trip"}
+              aria-label={!collapsedSections.has("post") ? "Collapse Post-Trip" : "Expand Post-Trip"}
+              className="mt-0.5 shrink-0 text-text-muted hover:text-text-primary"
+            >
+              <span className="material-symbols-outlined text-xl" aria-hidden="true">
+                {!collapsedSections.has("post") ? "expand_more" : "chevron_right"}
+              </span>
+            </button>
+            <h3 className="mb-2 text-xl font-bold text-text-primary">Post-Trip</h3>
+          </div>
+          {!collapsedSections.has("post") && <ul className="space-y-1">{postEntries.map(renderEntry)}</ul>}
         </section>
       )}
 
