@@ -3,6 +3,18 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Bar,
+  BarChart,
+  Cell,
+  LabelList,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type {
   BudgetLine,
   CreateExpenseBody,
@@ -13,18 +25,36 @@ import { EXPENSE_CATEGORIES, enumLabel } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { Modal } from "../trip-itinerary";
 
-// Full literal Tailwind classes per category (not interpolated — the scanner
-// only sees complete class strings). Flights has no dedicated token, so it
-// borrows transit's hue.
-const CATEGORY_BAR: Record<ExpenseCategory, string> = {
-  flights: "bg-category-transit",
-  lodging: "bg-category-lodging",
-  food: "bg-category-food",
-  activities: "bg-category-activity",
-  transit: "bg-category-transit",
-  shopping: "bg-category-shopping",
-  other: "bg-category-other",
+// Category → generated theme.css var (see packages/ui-tokens), so chart
+// fills swap with light/dark automatically. Flights has no dedicated token,
+// so it borrows transit's hue.
+const CATEGORY_COLOR_VAR: Record<ExpenseCategory, string> = {
+  flights: "--category-transit-rgb",
+  lodging: "--category-lodging-rgb",
+  food: "--category-food-rgb",
+  activities: "--category-activity-rgb",
+  transit: "--category-transit-rgb",
+  shopping: "--category-shopping-rgb",
+  other: "--category-other-rgb",
 };
+const rgbVar = (name: string) => `rgb(var(${name}))`;
+
+// Fixed categorical slot order (blue/green/magenta/yellow/aqua/violet/red) —
+// the same validated 8-hue palette as CATEGORY_COLORS, re-ordered for
+// adjacent colorblind-safe contrast when used as an arbitrary (non-category)
+// identity sequence. One slot per city, assigned by leg order — never by
+// sorted rank — so a color stays tied to its city. Legs beyond the 7th slot
+// fold into a shared muted color.
+const CITY_COLOR_VARS = [
+  "--category-transit-rgb",
+  "--category-sight-rgb",
+  "--category-other-rgb",
+  "--category-shopping-rgb",
+  "--category-activity-rgb",
+  "--category-lodging-rgb",
+  "--category-food-rgb",
+];
+const CITY_OVERFLOW_COLOR = "--chrome-text-muted-rgb";
 
 function categoryIcon(cat: string): string {
   return EXPENSE_CATEGORIES.find((c) => c.key === cat)?.iconName ?? "receipt_long";
@@ -77,6 +107,16 @@ export function TripBudget({ tripId }: { tripId: number }) {
     return (legId: number | null) => (legId == null ? "Unassigned" : (map.get(legId) ?? `City ${legId}`));
   }, [trip]);
 
+  // City color stays tied to leg identity (trip.legs order), never to sorted
+  // rank, so it doesn't repaint as amounts change.
+  const cityColorByLeg = useMemo(() => {
+    const map = new Map<string, string>();
+    (trip?.legs ?? []).forEach((leg, i) => {
+      map.set(String(leg.id), rgbVar(CITY_COLOR_VARS[i] ?? CITY_OVERFLOW_COLOR));
+    });
+    return (legId: number | null) => (legId == null ? rgbVar(CITY_OVERFLOW_COLOR) : (map.get(String(legId)) ?? rgbVar(CITY_OVERFLOW_COLOR)));
+  }, [trip]);
+
   const expenseById = useMemo(() => {
     const map = new Map<number, Expense>();
     for (const e of expenses ?? []) map.set(e.id, e);
@@ -99,33 +139,30 @@ export function TripBudget({ tripId }: { tripId: number }) {
 
   const home = budget.homeCurrency;
   const { grand } = budget;
-  const maxCurrent = Math.max(1, ...budget.byCategory.map((c) => c.current), ...budget.byLeg.map((l) => l.current));
 
-  const rollups: { key: string; label: string; icon?: string; barClass: string; current: number; estimated: number; actual: number }[] =
-    grouping === "category"
-      ? [...budget.byCategory]
-          .sort((a, b) => b.current - a.current)
-          .map((c) => ({
-            key: c.category,
-            label: enumLabel(EXPENSE_CATEGORIES, c.category),
-            icon: categoryIcon(c.category),
-            barClass: CATEGORY_BAR[c.category],
-            current: c.current,
-            estimated: c.estimated,
-            actual: c.actual,
-          }))
-      : [...budget.byLeg]
-          .sort((a, b) => b.current - a.current)
-          .map((l) => ({
-            key: String(l.legId),
-            label: legName(l.legId),
-            barClass: "bg-category-transit",
-            current: l.current,
-            estimated: l.estimated,
-            actual: l.actual,
-          }));
+  const categoryChartData = [...budget.byCategory]
+    .filter((c) => c.current > 0)
+    .sort((a, b) => b.current - a.current)
+    .map((c) => ({
+      key: c.category,
+      label: enumLabel(EXPENSE_CATEGORIES, c.category),
+      current: c.current,
+      color: rgbVar(CATEGORY_COLOR_VAR[c.category]),
+    }));
 
-  // Lines grouped for the list, honoring the same toggle.
+  const cityChartData = [...budget.byLeg]
+    .filter((l) => l.current > 0)
+    .sort((a, b) => b.current - a.current)
+    .map((l) => ({
+      key: String(l.legId),
+      label: legName(l.legId),
+      current: l.current,
+      color: cityColorByLeg(l.legId),
+    }));
+
+  // Lines grouped for the list, honoring the same toggle. Sorted
+  // alphabetically by label, with the catch-all group ("Other" / "Unassigned")
+  // pinned last regardless of where it falls alphabetically.
   const groups = new Map<string, { label: string; lines: BudgetLine[] }>();
   for (const line of budget.lines) {
     const key = grouping === "category" ? line.category : String(line.legId);
@@ -133,6 +170,14 @@ export function TripBudget({ tripId }: { tripId: number }) {
     if (!groups.has(key)) groups.set(key, { label, lines: [] });
     groups.get(key)!.lines.push(line);
   }
+  const sortedGroups = [...groups.entries()]
+    .sort(([keyA], [keyB]) => {
+      const isCatchAllA = grouping === "category" ? keyA === "other" : keyA === "null";
+      const isCatchAllB = grouping === "category" ? keyB === "other" : keyB === "null";
+      if (isCatchAllA !== isCatchAllB) return isCatchAllA ? 1 : -1;
+      return groups.get(keyA)!.label.localeCompare(groups.get(keyB)!.label);
+    })
+    .map(([, group]) => group);
 
   return (
     <div className="space-y-6">
@@ -189,81 +234,73 @@ export function TripBudget({ tripId }: { tripId: number }) {
         )}
       </section>
 
-      {/* Grouping toggle */}
-      <div className="flex gap-2">
-        {(["category", "leg"] as const).map((g) => (
-          <button
-            key={g}
-            onClick={() => setGrouping(g)}
-            className={`rounded px-3 py-1 text-sm ${
-              grouping === g ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"
-            }`}
-          >
-            {g === "category" ? "By category" : "By city"}
-          </button>
-        ))}
+      {/* Charts + line items, side by side on wide screens */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        {/* Charts */}
+        <div className="space-y-6">
+          <ChartCard title="By category">
+            <CategoryBarChart data={categoryChartData} home={home} />
+          </ChartCard>
+          <ChartCard title="By city">
+            <CityPieChart data={cityChartData} home={home} />
+          </ChartCard>
+        </div>
+
+        {/* Line items */}
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            {(["category", "leg"] as const).map((g) => (
+              <button
+                key={g}
+                onClick={() => setGrouping(g)}
+                className={`rounded px-3 py-1 text-sm ${
+                  grouping === g ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"
+                }`}
+              >
+                {g === "category" ? "By category" : "By city"}
+              </button>
+            ))}
+          </div>
+
+          <section className="space-y-4">
+            {sortedGroups.map((group) => (
+              <div key={group.label}>
+                <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">{group.label}</h2>
+                <div className="divide-y divide-gridline rounded border border-gridline">
+                  {group.lines.map((line) => (
+                    <BudgetLineRow
+                      key={line.key}
+                      line={line}
+                      home={home}
+                      onEdit={
+                        line.source === "manual" && line.expenseId != null
+                          ? () => {
+                              const e = expenseById.get(line.expenseId!);
+                              if (e) {
+                                setEditing(e);
+                                setFormOpen(true);
+                              }
+                            }
+                          : undefined
+                      }
+                      onDelete={
+                        line.source === "manual" && line.expenseId != null
+                          ? () => removeExpense(line.expenseId!)
+                          : undefined
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {groups.size === 0 && (
+              <p className="rounded border border-dashed border-gridline p-6 text-center text-sm text-text-muted">
+                No expenses yet. Add one, or bookings with a price will appear here automatically.
+              </p>
+            )}
+          </section>
+        </div>
       </div>
-
-      {/* Rollup bars */}
-      <section className="space-y-2">
-        {rollups.map((r) => (
-          <div key={r.key} className="rounded border border-gridline bg-surface p-3">
-            <div className="mb-1 flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2 font-medium text-text-primary">
-                {r.icon && (
-                  <span className="material-symbols-outlined text-base text-text-muted" aria-hidden="true">
-                    {r.icon}
-                  </span>
-                )}
-                {r.label}
-              </span>
-              <span className="font-semibold text-text-primary">{money(r.current, home)}</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded bg-page">
-              <div className={`h-full ${r.barClass}`} style={{ width: `${(r.current / maxCurrent) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-        {rollups.length === 0 && (
-          <p className="rounded border border-dashed border-gridline p-6 text-center text-sm text-text-muted">
-            No expenses yet. Add one, or bookings with a price will appear here automatically.
-          </p>
-        )}
-      </section>
-
-      {/* Line list */}
-      <section className="space-y-4">
-        {[...groups.values()].map((group) => (
-          <div key={group.label}>
-            <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">{group.label}</h2>
-            <div className="divide-y divide-gridline rounded border border-gridline">
-              {group.lines.map((line) => (
-                <BudgetLineRow
-                  key={line.key}
-                  line={line}
-                  home={home}
-                  onEdit={
-                    line.source === "manual" && line.expenseId != null
-                      ? () => {
-                          const e = expenseById.get(line.expenseId!);
-                          if (e) {
-                            setEditing(e);
-                            setFormOpen(true);
-                          }
-                        }
-                      : undefined
-                  }
-                  onDelete={
-                    line.source === "manual" && line.expenseId != null
-                      ? () => removeExpense(line.expenseId!)
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </section>
 
       {formOpen && (
         <ExpenseForm
@@ -281,6 +318,118 @@ export function TripBudget({ tripId }: { tripId: number }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+type ChartDatum = { key: string; label: string; current: number; color: string };
+
+function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded border border-gridline bg-surface p-4">
+      <h2 className="mb-3 text-sm font-semibold uppercase text-text-muted">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function EmptyChart() {
+  return (
+    <p className="py-6 text-center text-sm text-text-muted">Nothing to chart yet.</p>
+  );
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  home,
+}: {
+  active?: boolean;
+  payload?: { value?: number | string; payload: ChartDatum }[];
+  home: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const entry = payload[0];
+  const datum = entry.payload;
+  return (
+    <div className="rounded border border-gridline bg-surface px-3 py-2 text-sm shadow-sm">
+      <div className="font-medium text-text-primary">{datum.label}</div>
+      <div className="text-text-secondary">{moneyExact(Number(entry.value), home)}</div>
+    </div>
+  );
+}
+
+function CategoryBarChart({ data, home }: { data: ChartDatum[]; home: string }) {
+  if (data.length === 0) return <EmptyChart />;
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(120, data.length * 40)}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 56, bottom: 4, left: 4 }} barCategoryGap={12}>
+        <XAxis type="number" hide />
+        <YAxis
+          type="category"
+          dataKey="label"
+          width={100}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fill: "rgb(var(--chrome-text-secondary-rgb))", fontSize: 12 }}
+        />
+        <Tooltip
+          content={(props: any) => <ChartTooltip {...props} home={home} />}
+          cursor={{ fill: "rgb(var(--chrome-page-rgb))" }}
+        />
+        <Bar dataKey="current" maxBarSize={20} radius={[0, 4, 4, 0]} isAnimationActive={false}>
+          {data.map((d) => (
+            <Cell key={d.key} fill={d.color} />
+          ))}
+          <LabelList
+            dataKey="current"
+            position="right"
+            formatter={(v: any) => money(Number(v), home)}
+            style={{ fill: "rgb(var(--chrome-text-primary-rgb))", fontSize: 12, fontWeight: 600 }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function CityPieChart({ data, home }: { data: ChartDatum[]; home: string }) {
+  if (data.length === 0) return <EmptyChart />;
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+      <div className="mx-auto h-[200px] w-[200px] shrink-0 sm:mx-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Tooltip content={(props: any) => <ChartTooltip {...props} home={home} />} />
+            <Pie
+              data={data}
+              dataKey="current"
+              nameKey="label"
+              innerRadius={48}
+              outerRadius={90}
+              paddingAngle={data.length > 1 ? 2 : 0}
+              stroke="rgb(var(--chrome-surface-rgb))"
+              strokeWidth={2}
+              isAnimationActive={false}
+            >
+              {data.map((d) => (
+                <Cell key={d.key} fill={d.color} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <ul className="min-w-0 flex-1 space-y-1.5 text-sm">
+        {data.map((d) => (
+          <li key={d.key} className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+              <span className="truncate text-text-primary">{d.label}</span>
+            </span>
+            <span className="shrink-0 text-text-secondary">{money(d.current, home)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -473,8 +622,14 @@ function ExpenseForm({
 
   return (
     <Modal onClose={onClose}>
-      <h2 className="mb-3 text-lg font-semibold text-text-primary">{editing ? "Edit expense" : "Add expense"}</h2>
-      <div className="space-y-3">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          save();
+        }}
+      >
+        <h2 className="mb-3 text-lg font-semibold text-text-primary">{editing ? "Edit expense" : "Add expense"}</h2>
+        <div className="space-y-3">
         <input
           autoFocus
           className={inputClass}
@@ -585,21 +740,22 @@ function ExpenseForm({
           onChange={(e) => set({ notes: e.target.value })}
         />
 
-        {error && <p className="text-sm text-status-critical">{error}</p>}
-      </div>
+          {error && <p className="text-sm text-status-critical">{error}</p>}
+        </div>
 
-      <div className="mt-4 flex justify-end gap-3">
-        <button onClick={onClose} className="text-sm text-text-secondary">
-          Cancel
-        </button>
-        <button
-          onClick={save}
-          disabled={saving}
-          className="rounded bg-category-transit px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </div>
+        <div className="mt-4 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="text-sm text-text-secondary">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-category-transit px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }
