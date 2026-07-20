@@ -177,7 +177,10 @@ export function TripBudget({ tripId }: { tripId: number }) {
       if (isCatchAllA !== isCatchAllB) return isCatchAllA ? 1 : -1;
       return groups.get(keyA)!.label.localeCompare(groups.get(keyB)!.label);
     })
-    .map(([, group]) => group);
+    .map(([, group]) => ({
+      ...group,
+      lines: [...group.lines].sort((a, b) => a.label.localeCompare(b.label)),
+    }));
 
   return (
     <div className="space-y-6">
@@ -217,10 +220,6 @@ export function TripBudget({ tripId }: { tripId: number }) {
             <div>
               <div className="text-text-muted">Actual</div>
               <div className="font-semibold text-text-primary">{money(grand.actual, home)}</div>
-            </div>
-            <div>
-              <div className="text-text-muted">Variance</div>
-              <VarianceText value={grand.variance} currency={home} />
             </div>
           </div>
         </div>
@@ -430,18 +429,6 @@ function CityPieChart({ data, home }: { data: ChartDatum[]; home: string }) {
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function VarianceText({ value, currency }: { value: number; currency: string }) {
-  if (value === 0) return <div className="font-semibold text-text-muted">—</div>;
-  const over = value > 0;
-  return (
-    <div className={`font-semibold ${over ? "text-status-critical" : "text-status-good"}`}>
-      {over ? "+" : "−"}
-      {money(Math.abs(value), currency)}
-      <span className="ml-1 text-xs font-normal">{over ? "over" : "under"}</span>
     </div>
   );
 }
