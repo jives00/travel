@@ -1,7 +1,7 @@
-// Google Maps ignores the app's `data-theme` — it always renders its default
-// light tiles unless given an explicit style array, so the mini/global maps
-// stayed a bright rectangle inside an otherwise all-dark UI. Applied via
-// `styles` on map creation and `setOptions` when the theme flips at runtime.
+// Google Maps ignores the app's theme — it always renders its default light
+// tiles unless given an explicit style array. Same JSON style format on both
+// platforms: applied via `styles`/`setOptions` on web's Maps JS API, and via
+// the `customMapStyle` prop on mobile's react-native-maps.
 export const DARK_MAP_STYLE = [
   { elementType: "geometry", stylers: [{ color: "#1a1a2e" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#1a1a2e" }] },

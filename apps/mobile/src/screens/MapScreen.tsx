@@ -2,11 +2,12 @@ import { useMemo, useState } from "react";
 import { View, Text, Pressable } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { useQuery } from "@tanstack/react-query";
-import { MAP_OVERVIEW_COLORS, MAP_OVERVIEW_GROUPS, type MapOverviewGroup } from "@travel/ui-tokens";
+import { MAP_OVERVIEW_COLORS, MAP_OVERVIEW_GROUPS, DARK_MAP_STYLE, type MapOverviewGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
 import { useRemoveWishlist } from "../lib/offlineMutations/wishlist";
 import { WishlistAddSheet } from "../components/WishlistAddSheet";
 import { Screen, Button } from "../components/ui";
+import { useTheme } from "../lib/theme";
 
 interface Point {
   id: string;
@@ -29,6 +30,7 @@ export function MapScreen() {
   const { data: overview } = useQuery(travelApi.queries.mapOverviewQuery());
   const { data: wishlist } = useQuery(travelApi.queries.wishlistQuery());
   const removeWishlist = useRemoveWishlist();
+  const { theme } = useTheme();
 
   const [visible, setVisible] = useState<Record<MapOverviewGroup, boolean>>({
     visited: true,
@@ -81,6 +83,7 @@ export function MapScreen() {
         provider={PROVIDER_GOOGLE}
         style={{ flex: 1 }}
         initialRegion={{ latitude: 20, longitude: 0, latitudeDelta: 100, longitudeDelta: 100 }}
+        customMapStyle={theme === "dark" ? DARK_MAP_STYLE : undefined}
       >
         {points.map((p) => (
           <Marker

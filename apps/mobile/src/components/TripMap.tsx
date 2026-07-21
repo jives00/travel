@@ -3,8 +3,9 @@ import { View, Text, Pressable } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { useQuery } from "@tanstack/react-query";
 import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
-import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
+import { MAP_PIN_COLORS, DARK_MAP_STYLE, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
+import { useTheme } from "../lib/theme";
 
 function regionForPins(pins: { lat: number; lng: number }[]): Region | undefined {
   if (pins.length === 0) return undefined;
@@ -43,6 +44,7 @@ export function TripMap({ tripId }: { tripId: number }) {
   const { data: items } = useQuery(travelApi.queries.itineraryQuery(tripId));
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { theme } = useTheme();
   const mapRef = useRef<MapView>(null);
 
   const [cityFilter, setCityFilter] = useState<number | "all">("all");
@@ -156,6 +158,7 @@ export function TripMap({ tripId }: { tripId: number }) {
           provider={PROVIDER_GOOGLE}
           style={{ flex: 1 }}
           initialRegion={initialRegion}
+          customMapStyle={theme === "dark" ? DARK_MAP_STYLE : undefined}
           onMapReady={() => setMapReady(true)}
         >
           {filteredPins.map((p) => {

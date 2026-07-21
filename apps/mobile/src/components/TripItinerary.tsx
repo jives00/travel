@@ -3,8 +3,10 @@ import { View, Text, Pressable, Image, Linking } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import type { Booking, BookingType, ItineraryItem, Leg, Place, PlaceTag } from "@travel/types";
-import { BOOKING_TYPES, PLACE_TAGS, enumLabel, todayDateString } from "@travel/core";
+import { BOOKING_TYPES, PLACE_TAGS, enumLabel, mapPinGroupForTag, mapPinGroupForBookingType, todayDateString } from "@travel/core";
+import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
+import { useTheme } from "../lib/theme";
 import { useScheduleItem, useUnscheduleItem, useMoveItem } from "../lib/offlineMutations/itinerary";
 import { useRemoveBooking, useUpdateBooking } from "../lib/offlineMutations/bookings";
 import { useUpdatePlace, useRemovePlace } from "../lib/offlineMutations/places";
@@ -26,6 +28,22 @@ interface Entry {
   itemId?: number; // itinerary item id (place/activity)
   bookingId?: number;
   placeId?: number;
+  // Human-readable grouping label for the collapsible category sections
+  // within a leg — a place's primary tag, a booking's type, or "Idea".
+  categoryLabel: string;
+  // Same map-pin color grouping used on the trip map, drives the category
+  // section's colored dot. Unset for ideas.
+  mapPinGroup?: MapPinGroup;
+  booking?: Booking;
+}
+
+// Itinerary-only category grouping label — "activity" (Tour / Activity) and
+// "day_trip" both read as trip-planning outings, so they're merged into one
+// section here even though they stay distinct tags elsewhere (map pins, the
+// place editor's tag picker, etc). Mirrors web's trip-itinerary.tsx.
+function itineraryCategoryLabel(tag: PlaceTag | null | undefined, fallbackLabel: string): string {
+  if (tag === "activity" || tag === "day_trip") return "Day Trips & Tours";
+  return fallbackLabel;
 }
 
 function bookingEntry(b: Booking): Entry {
@@ -41,12 +59,16 @@ function bookingEntry(b: Booking): Entry {
     isPrivate: false,
     completed: b.completed,
     bookingId: b.id,
+    categoryLabel: b.type === "activity" ? "Day Trips & Tours" : (t?.label ?? b.type),
+    mapPinGroup: mapPinGroupForBookingType(b.type) as MapPinGroup,
+    booking: b,
   };
 }
 
 function itemEntry(i: ItineraryItem, placeById: Map<number, Place>): Entry {
   const isPlace = i.itemType === "place";
   const place = isPlace && i.placeId != null ? placeById.get(i.placeId) : undefined;
+  const placeTag = isPlace && place?.primaryTag ? PLACE_TAGS.find((t) => t.key === place.primaryTag) : undefined;
   return {
     key: `i-${i.id}`,
     kind: isPlace ? "place" : "activity",
@@ -59,7 +81,95 @@ function itemEntry(i: ItineraryItem, placeById: Map<number, Place>): Entry {
     completed: i.completed,
     itemId: i.id,
     placeId: isPlace ? (i.placeId ?? undefined) : undefined,
+    categoryLabel: isPlace ? itineraryCategoryLabel(place?.primaryTag, placeTag?.label ?? "Uncategorized") : "Idea",
+    mapPinGroup: isPlace ? (mapPinGroupForTag(place?.primaryTag) as MapPinGroup) : undefined,
   };
+}
+
+/** Buckets already-sorted entries by their category label, alphabetically —
+ * drives the collapsible category sections within a leg. Mirrors web. */
+function groupByCategory(entries: Entry[]): [string, Entry[]][] {
+  const map = new Map<string, Entry[]>();
+  for (const entry of entries) map.set(entry.categoryLabel, [...(map.get(entry.categoryLabel) ?? []), entry]);
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function CategoryDot({ entries }: { entries: Entry[] }) {
+  const { theme } = useTheme();
+  const group = entries.find((e) => e.mapPinGroup)?.mapPinGroup ?? "other";
+  const color = (MAP_PIN_COLORS[group] ?? MAP_PIN_COLORS.other)[theme];
+  return <View className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />;
+}
+
+// "2026-07-18" -> "Jul 18" — used by the transport divider's short date label.
+function formatDateShort(d: string): string {
+  return new Date(`${toDateOnlyString(d)}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatDurationBetween(startAt: string | null, endAt: string | null): string | null {
+  if (!startAt || !endAt) return null;
+  const totalMinutes = Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000);
+  if (!(totalMinutes > 0)) return null;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/** The dashed inter-leg divider — surfaces a flight/train/car booking that's
+ * assigned to the *arriving* leg as "<type> · <from city> → <to city> ·
+ * <date> · <duration>", matching web's TransportDivider. */
+function TransportDivider({ booking, fromCity, toCity }: { booking: Booking; fromCity: string; toCity: string }) {
+  const t = BOOKING_TYPES.find((x) => x.key === booking.type);
+  const dateLabel = booking.startAt ? formatDateShort(booking.startAt) : null;
+  const duration = formatDurationBetween(booking.startAt, booking.endAt);
+  return (
+    <View
+      className="mb-2 flex-row flex-wrap items-center gap-2 rounded border border-category-transit bg-category-transit/10 px-3 py-2"
+      style={{ borderStyle: "dashed" }}
+    >
+      <View className="h-6 w-6 items-center justify-center rounded-full bg-category-transit">
+        <Ionicons name={transportIconFor(t?.iconName)} size={13} color="#fff" />
+      </View>
+      <Text className="text-sm font-medium text-text-primary dark:text-text-primary-dark">{t?.label ?? booking.type}</Text>
+      <Text className="text-sm text-text-muted">·</Text>
+      <Text className="text-sm text-text-primary dark:text-text-primary-dark">
+        {fromCity} → {toCity}
+      </Text>
+      {dateLabel && (
+        <>
+          <Text className="text-sm text-text-muted">·</Text>
+          <Text className="text-sm text-text-primary dark:text-text-primary-dark">{dateLabel}</Text>
+        </>
+      )}
+      {duration && (
+        <>
+          <Text className="text-sm text-text-muted">·</Text>
+          <Text className="text-sm text-text-primary dark:text-text-primary-dark">{duration}</Text>
+        </>
+      )}
+    </View>
+  );
+}
+
+// Material Symbols ligature names (used by core's BOOKING_TYPES) don't exist
+// in Ionicons — map the transport-relevant ones to their closest equivalent.
+function transportIconFor(materialIconName: string | undefined): React.ComponentProps<typeof Ionicons>["name"] {
+  switch (materialIconName) {
+    case "flight":
+      return "airplane";
+    case "train":
+      return "train";
+    case "directions_car":
+      return "car";
+    default:
+      return "swap-horizontal";
+  }
 }
 
 function combineDateTime(date: string, time: string): string | undefined {
@@ -363,16 +473,19 @@ function PlaceDetailFields({
 }
 
 /** Full booking edit — mirrors web's BookingFields (type, title, confirmation,
- * dates/times, price, notes, leg). */
+ * dates/times, price, notes, leg) plus the linked-place field added alongside
+ * web's booking/place detail parity (BookingDetailPanel). */
 function BookingEditFields({
   tripId,
   booking,
   legs,
+  placeOptions,
   onClose,
 }: {
   tripId: number;
   booking: Booking | undefined;
   legs: Leg[];
+  placeOptions: { id: number; name: string }[];
   onClose: () => void;
 }) {
   const updateBooking = useUpdateBooking(tripId);
@@ -395,6 +508,7 @@ function BookingEditFields({
   const [address, setAddress] = useState(booking?.address ?? "");
   const [lat, setLat] = useState<number | null>(booking?.lat ?? null);
   const [lng, setLng] = useState<number | null>(booking?.lng ?? null);
+  const [placeId, setPlaceId] = useState<number | null>(booking?.placeId ?? null);
 
   if (!booking) {
     return <Text className="text-sm text-text-muted">Booking details unavailable.</Text>;
@@ -416,6 +530,7 @@ function BookingEditFields({
       address: address || undefined,
       lat: lat ?? undefined,
       lng: lng ?? undefined,
+      placeId: type === "hotel" ? undefined : (placeId ?? undefined),
     });
     onClose();
   }
@@ -461,6 +576,20 @@ function BookingEditFields({
             segments={[{ value: "none", label: "None" }, ...legs.map((l) => ({ value: String(l.id), label: l.city }))]}
             value={legId == null ? "none" : String(legId)}
             onChange={(v) => setLegId(v === "none" ? null : Number(v))}
+          />
+        </>
+      )}
+
+      {/* Not offered for hotels — their own address already fills the "where
+          is this" role a linked place would. Mirrors web's BookingDetailPanel. */}
+      {type !== "hotel" && placeOptions.length > 0 && (
+        <>
+          <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">Linked place (optional)</Text>
+          <SegmentedControl
+            className="mb-3"
+            segments={[{ value: "none", label: "None" }, ...placeOptions.map((p) => ({ value: String(p.id), label: p.name }))]}
+            value={placeId == null ? "none" : String(placeId)}
+            onChange={(v) => setPlaceId(v === "none" ? null : Number(v))}
           />
         </>
       )}
@@ -521,6 +650,19 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
   }
 
   const placeById = useMemo(() => new Map((places ?? []).map((p) => [p.id, p])), [places]);
+  const placeOptions = useMemo(() => (places ?? []).map((p) => ({ id: p.id, name: p.name })), [places]);
+
+  // A flight/train/car booking assigned to a leg is treated as the transport
+  // that carried the traveler INTO that leg — rendered as a dashed divider
+  // between the previous leg and this one instead of as a regular list entry.
+  const TRANSPORT_TYPES = new Set(["flight", "train", "car"]);
+  const transportBookingByLegId = useMemo(() => {
+    const map = new Map<number, Booking>();
+    for (const b of bookings ?? []) {
+      if (TRANSPORT_TYPES.has(b.type) && b.legId != null && !map.has(b.legId)) map.set(b.legId, b);
+    }
+    return map;
+  }, [bookings]);
 
   const entries = useMemo(() => {
     const showPrivate = settings?.showPrivateItems ?? true;
@@ -528,8 +670,12 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
       ...(bookings ?? []).map(bookingEntry),
       ...(items ?? []).map((i) => itemEntry(i, placeById)),
     ].filter((e) => showPrivate || !e.isPrivate);
-    return list;
-  }, [bookings, items, placeById, settings]);
+    // A leg's inbound transport booking is surfaced as the divider above that
+    // leg's section instead of also being listed as a plain entry.
+    return list.filter(
+      (e) => !(e.kind === "booking" && e.legId != null && transportBookingByLegId.get(e.legId)?.id === e.bookingId),
+    );
+  }, [bookings, items, placeById, settings, transportBookingByLegId]);
 
   // Sorted by date, same as web — dateless legs sink after any dated legs.
   const sortedLegs = useMemo(
@@ -638,12 +784,52 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     });
   }
 
+  function renderEntryRow(e: Entry) {
+    return (
+      <Card key={e.key} className={`mb-2 flex-row items-center gap-2 ${e.completed ? "opacity-50" : ""}`}>
+        <Pressable
+          onPress={() => toggleComplete(e)}
+          accessibilityLabel={e.completed ? "Mark not visited" : "Mark visited"}
+          className="h-8 w-8 items-center justify-center"
+        >
+          <Ionicons name={e.completed ? "checkbox" : "square-outline"} size={22} color={e.completed ? "#4f8f6a" : "#898781"} />
+        </Pressable>
+        <Pressable className="flex-1" onPress={() => openEdit(e)}>
+          <Text
+            className="text-text-primary dark:text-text-primary-dark"
+            style={e.completed ? { textDecorationLine: "line-through" } : undefined}
+          >
+            {e.isPrivate ? "🔒 " : ""}
+            {e.title}
+          </Text>
+          <Text className="text-xs text-text-muted">
+            {e.subtitle}
+            {e.scheduledDate
+              ? ` · ${formatDateLong(e.scheduledDate)}${e.kind === "booking" && e.time ? ` ${formatTime12h(e.time)}` : ""}`
+              : ""}
+          </Text>
+        </Pressable>
+      </Card>
+    );
+  }
+
   return (
     <View>
       {groups.map((g) => {
         const collapsed = collapsedLegs.has(g.key);
+        const isLeg = g.key.startsWith("leg-");
+        const legId = isLeg ? Number(g.key.slice(4)) : null;
+        const legIndex = isLeg ? sortedLegs.findIndex((l) => l.id === legId) : -1;
+        const prevLeg = isLeg && legIndex > 0 ? sortedLegs[legIndex - 1] : null;
+        const transportBooking = legId != null ? transportBookingByLegId.get(legId) : undefined;
+        const totalCount = g.entries.length;
+        const visitedCount = g.entries.filter((e) => e.completed).length;
+        const categoryGroups = isLeg ? groupByCategory(g.entries) : null;
         return (
         <View key={g.key} className="mb-4">
+          {prevLeg && transportBooking && (
+            <TransportDivider booking={transportBooking} fromCity={prevLeg.city} toCity={g.label} />
+          )}
           <View className="mb-2 flex-row items-center justify-between">
             <Pressable className="flex-1" onPress={() => toggleCollapsed(g.key)}>
               <Text className="text-lg font-bold text-text-primary dark:text-text-primary-dark">
@@ -651,9 +837,14 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
                 {g.label}
               </Text>
             </Pressable>
-            {!collapsed && g.key.startsWith("leg-") && (
+            {totalCount > 0 && (
+              <Text className="mr-2 text-sm font-medium text-text-secondary dark:text-text-secondary-dark">
+                {visitedCount}/{totalCount} visited
+              </Text>
+            )}
+            {!collapsed && isLeg && (
               <Pressable
-                onPress={() => openAdd(Number(g.key.slice(4)))}
+                onPress={() => openAdd(legId)}
                 accessibilityLabel={`Add to ${g.label}`}
                 className="h-8 w-8 items-center justify-center rounded-full bg-category-transit"
               >
@@ -663,33 +854,25 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
           </View>
           {collapsed ? null : g.entries.length === 0 ? (
             <Text className="mb-2 text-xs text-text-muted">Nothing scheduled here yet.</Text>
+          ) : categoryGroups ? (
+            categoryGroups.map(([label, catEntries]) => {
+              const catKey = `${g.key}::cat::${label}`;
+              const catCollapsed = collapsedLegs.has(catKey);
+              return (
+                <View key={label} className="mb-2">
+                  <Pressable className="mb-1 flex-row items-center gap-2" onPress={() => toggleCollapsed(catKey)}>
+                    <Text className="text-text-muted">{catCollapsed ? "▸" : "▾"}</Text>
+                    <CategoryDot entries={catEntries} />
+                    <Text className="text-xs font-semibold uppercase tracking-wide text-text-secondary dark:text-text-secondary-dark">
+                      {label} ({catEntries.length})
+                    </Text>
+                  </Pressable>
+                  {!catCollapsed && catEntries.map(renderEntryRow)}
+                </View>
+              );
+            })
           ) : (
-            g.entries.map((e) => (
-              <Card key={e.key} className={`mb-2 flex-row items-center justify-between ${e.completed ? "opacity-50" : ""}`}>
-                <Pressable className="flex-1" onPress={() => openEdit(e)}>
-                  <Text
-                    className="text-text-primary dark:text-text-primary-dark"
-                    style={e.completed ? { textDecorationLine: "line-through" } : undefined}
-                  >
-                    {e.isPrivate ? "🔒 " : ""}
-                    {e.title}
-                  </Text>
-                  <Text className="text-xs text-text-muted">
-                    {e.subtitle}
-                    {e.scheduledDate
-                      ? ` · ${formatDateLong(e.scheduledDate)}${e.kind === "booking" && e.time ? ` ${formatTime12h(e.time)}` : ""}`
-                      : ""}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => toggleComplete(e)}
-                  accessibilityLabel={e.completed ? "Mark not visited" : "Mark visited"}
-                  className="ml-2 h-8 w-8 items-center justify-center"
-                >
-                  <Ionicons name={e.completed ? "checkbox" : "square-outline"} size={22} color={e.completed ? "#4f8f6a" : "#898781"} />
-                </Pressable>
-              </Card>
-            ))
+            g.entries.map(renderEntryRow)
           )}
         </View>
         );
@@ -761,6 +944,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
             tripId={tripId}
             booking={bookings?.find((b) => b.id === editing.bookingId)}
             legs={legs}
+            placeOptions={placeOptions}
             onClose={() => setEditing(null)}
           />
         ) : editing ? (

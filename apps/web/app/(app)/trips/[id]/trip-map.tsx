@@ -2,12 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
+import { MAP_PIN_COLORS, DARK_MAP_STYLE, type MapPinGroup } from "@travel/ui-tokens";
 import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { infoWindowHtml } from "@/lib/mapInfoWindow";
-import { DARK_MAP_STYLE } from "@/lib/googleMapDarkStyle";
 import { useTheme } from "@/lib/theme-context";
 
 // Same inline-SVG pin icon as the standalone /map page's MapView — a real

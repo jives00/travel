@@ -2,14 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MAP_OVERVIEW_COLORS, MAP_OVERVIEW_GROUPS, type MapOverviewGroup } from "@travel/ui-tokens";
+import { MAP_OVERVIEW_COLORS, MAP_OVERVIEW_GROUPS, DARK_MAP_STYLE, type MapOverviewGroup } from "@travel/ui-tokens";
 import type { AutocompleteSuggestion } from "@travel/api-client";
 import type { WishlistLocationType, WishlistStatus } from "@travel/types";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { googleMapsUrl } from "@/lib/mapInfoWindow";
 import { sessionToken as makeSessionToken } from "@/lib/sessionToken";
-import { DARK_MAP_STYLE } from "@/lib/googleMapDarkStyle";
 import { useTheme } from "@/lib/theme-context";
 
 // Same inline-SVG pin icon as trip-map.tsx / the old map-view — a real

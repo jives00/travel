@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, Pressable, FlatList } from "react-native";
+import { View, Text, Pressable, FlatList, Alert } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import type { ListWithItems } from "@travel/types";
 import { travelApi } from "../lib/api";
@@ -28,7 +28,14 @@ function ListCard({ list }: { list: ListWithItems }) {
         <Text className="font-medium text-text-primary dark:text-text-primary-dark">{list.name}</Text>
         <View className="flex-row gap-3">
           {list.tripId ? <Text className="text-xs text-text-muted">Trip</Text> : null}
-          <Pressable onPress={() => reset.mutate({ listId: list.id })}>
+          <Pressable
+            onPress={() =>
+              Alert.alert("Reset list", `Uncheck every item in "${list.name}"?`, [
+                { text: "Cancel", style: "cancel" },
+                { text: "Reset", style: "destructive", onPress: () => reset.mutate({ listId: list.id }) },
+              ])
+            }
+          >
             <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">Reset</Text>
           </Pressable>
           <Pressable onPress={() => copy.mutate({ listId: list.id })}>
