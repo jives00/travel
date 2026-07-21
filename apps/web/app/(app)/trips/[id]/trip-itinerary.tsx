@@ -47,6 +47,21 @@ function formatDateRange(start: string, end: string): string {
   return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
+function formatDateShort(d: string): string {
+  return dateOnly(toDateOnlyString(d)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function formatDurationBetween(startAt: string | null, endAt: string | null): string | null {
+  if (!startAt || !endAt) return null;
+  const totalMinutes = Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000);
+  if (!(totalMinutes > 0)) return null;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
 type EntryKind = "booking" | "place" | "activity";
 
 interface Entry {
@@ -98,12 +113,25 @@ function bookingEntry(b: Booking): Entry {
     subtitle: b.type,
     icon: bookingType?.iconName,
     iconLabel: bookingType?.label,
+    description: b.notes ?? undefined,
     isPrivate: false,
     completed: b.completed,
-    categoryLabel: bookingType?.label ?? b.type,
+    // A "Tour / Activity" booking reads the same as a day-trip place to a
+    // traveler planning their itinerary — grouped into "Day Trips & Tours"
+    // here rather than standing alone (see itineraryCategoryLabel below).
+    categoryLabel: b.type === "activity" ? "Day Trips & Tours" : (bookingType?.label ?? b.type),
     mapPinGroup: mapPinGroupForBookingType(b.type) as MapPinGroup,
     booking: b,
   };
+}
+
+// Itinerary-only category grouping label — "activity" (Tour / Activity) and
+// "day_trip" both read as trip-planning outings to a traveler, so they're
+// merged into one section here even though they stay distinct tags
+// elsewhere (map pins, the place editor's tag dropdown, etc).
+function itineraryCategoryLabel(tag: PlaceTag | null | undefined, fallbackLabel: string): string {
+  if (tag === "activity" || tag === "day_trip") return "Day Trips & Tours";
+  return fallbackLabel;
 }
 
 function itemEntry(i: ItineraryItem, placesById: Map<number, Place>): Entry {
@@ -124,7 +152,7 @@ function itemEntry(i: ItineraryItem, placesById: Map<number, Place>): Entry {
     placeId: isPlace ? place?.id : undefined,
     isPrivate: i.isPrivate,
     completed: i.completed,
-    categoryLabel: isPlace ? (placeTag?.label ?? "Uncategorized") : "Idea",
+    categoryLabel: isPlace ? itineraryCategoryLabel(place?.primaryTag, placeTag?.label ?? "Uncategorized") : "Idea",
     mapPinGroup: isPlace ? (mapPinGroupForTag(place?.primaryTag) as MapPinGroup) : undefined,
     item: i,
   };
@@ -164,21 +192,56 @@ function sortEntries(entries: Entry[]): Entry[] {
   });
 }
 
-type LegSortMode = "date" | "alpha" | "category";
+/** Buckets already-sorted entries by their category label, in alphabetical
+ * label order — drives the collapsible category sections within a leg. */
+function groupByCategory(entries: Entry[]): [string, Entry[]][] {
+  const map = new Map<string, Entry[]>();
+  for (const entry of entries) map.set(entry.categoryLabel, [...(map.get(entry.categoryLabel) ?? []), entry]);
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
 
-function sortLegEntries(entries: Entry[], mode: LegSortMode): Entry[] {
-  if (mode === "alpha") {
-    return [...entries].sort((a, b) => (a.completed !== b.completed ? (a.completed ? 1 : -1) : a.title.localeCompare(b.title)));
-  }
-  if (mode === "category") {
-    return [...entries].sort(
-      (a, b) =>
-        (a.completed !== b.completed ? (a.completed ? 1 : -1) : 0) ||
-        a.categoryLabel.localeCompare(b.categoryLabel) ||
-        a.title.localeCompare(b.title),
-    );
-  }
-  return sortEntries(entries);
+function CategoryDot({ entries }: { entries: Entry[] }) {
+  const { theme } = useTheme();
+  const group = entries.find((e) => e.mapPinGroup)?.mapPinGroup ?? "other";
+  const color = (MAP_PIN_COLORS[group] ?? MAP_PIN_COLORS.other)[theme];
+  return <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />;
+}
+
+/** The dashed inter-leg divider — surfaces a flight/train/car booking that's
+ * assigned to the *arriving* leg as "<type> · <from city> → <to city> · <date>
+ * · <duration>", Wanderlog-style. There's no dedicated transport entity; a
+ * booking already carries a single legId, so we treat "the transport booking
+ * on leg B" as the trip from the previous leg into B. */
+function TransportDivider({ booking, fromCity, toCity }: { booking: Booking; fromCity: string; toCity: string }) {
+  const bookingType = BOOKING_TYPES.find((t) => t.key === booking.type);
+  const dateLabel = booking.startAt ? formatDateShort(booking.startAt) : null;
+  const duration = formatDurationBetween(booking.startAt, booking.endAt);
+  return (
+    <div className="flex items-center gap-2 rounded border border-dashed border-category-transit bg-category-transit/10 px-3 py-2 text-sm text-text-primary">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-category-transit text-white">
+        <span className="material-symbols-outlined text-sm" aria-hidden="true">
+          {bookingType?.iconName ?? "directions_transit"}
+        </span>
+      </span>
+      <span className="font-medium">{bookingType?.label ?? booking.type}</span>
+      <span className="text-text-muted">·</span>
+      <span>
+        {fromCity} → {toCity}
+      </span>
+      {dateLabel && (
+        <>
+          <span className="text-text-muted">·</span>
+          <span>{dateLabel}</span>
+        </>
+      )}
+      {duration && (
+        <>
+          <span className="text-text-muted">·</span>
+          <span>{duration}</span>
+        </>
+      )}
+    </div>
+  );
 }
 
 export function Modal({
@@ -225,10 +288,6 @@ function EntryRow({
   onToggleComplete?: (entry: Entry) => void;
   onHoverPlace?: (placeId: number | null) => void;
 }) {
-  const { theme } = useTheme();
-  // Places and bookings both carry a map-pin group — colors the icon circle
-  // to match its marker on the map; plain ideas keep the muted text subtitle.
-  const pinColor = entry.mapPinGroup ? (MAP_PIN_COLORS[entry.mapPinGroup] ?? MAP_PIN_COLORS.other)[theme] : undefined;
   // Every entry kind can be checked off done/visited now.
   const completable = true;
   const done = entry.completed || fading;
@@ -239,28 +298,22 @@ function EntryRow({
       onMouseLeave={() => entry.placeId != null && onHoverPlace?.(null)}
     >
       <div
-        className={`flex items-center gap-2 rounded border border-gridline bg-surface p-2 transition-opacity duration-500 hover:border-category-transit ${done ? "opacity-50" : "opacity-100"}`}
+        className={`flex items-start gap-2 rounded border border-gridline bg-surface p-2 transition-opacity duration-500 hover:border-category-transit ${done ? "opacity-50" : "opacity-100"}`}
       >
+        {completable && (
+          <input
+            type="checkbox"
+            checked={done}
+            onChange={() => onToggleComplete?.(entry)}
+            title={done ? "Mark not visited" : "Mark visited"}
+            aria-label={done ? "Mark not visited" : "Mark visited"}
+            className="mt-0.5 h-5 w-5 shrink-0 accent-category-transit"
+          />
+        )}
         <button onClick={onClick} className="flex min-w-0 flex-1 items-center gap-3 text-left text-sm">
-          {entry.icon ? (
-            <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-              style={pinColor ? { backgroundColor: pinColor } : undefined}
-            >
-              <span
-                className={`material-symbols-outlined text-lg ${pinColor ? "text-white" : "text-text-muted"}`}
-                title={entry.iconLabel}
-                aria-hidden="true"
-              >
-                {entry.icon}
-              </span>
-            </span>
-          ) : (
-            <span className="shrink-0 text-xs uppercase text-text-muted">{entry.subtitle}</span>
-          )}
           <div className="min-w-0 flex-1 space-y-0.5">
             <span className="flex items-center justify-between gap-2">
-              <span className={`flex items-center gap-2 text-base text-text-primary ${done ? "line-through" : ""}`}>
+              <span className={`flex items-center gap-2 text-base font-medium text-text-primary ${done ? "line-through" : ""}`}>
                 {entry.title}
                 {entry.isPrivate && (
                   <span className="material-symbols-outlined text-sm text-text-muted" title="Private" aria-label="Private">
@@ -282,16 +335,6 @@ function EntryRow({
             {entry.description && <span className="line-clamp-2 text-sm text-text-muted">{entry.description}</span>}
           </div>
         </button>
-        {completable && (
-          <input
-            type="checkbox"
-            checked={done}
-            onChange={() => onToggleComplete?.(entry)}
-            title={done ? "Mark not visited" : "Mark visited"}
-            aria-label={done ? "Mark not visited" : "Mark visited"}
-            className="h-5 w-5 shrink-0 accent-category-transit"
-          />
-        )}
       </div>
     </li>
   );
@@ -1071,6 +1114,347 @@ function PlaceDetailPanel({
   );
 }
 
+// Booking's counterpart to PlaceDetailPanel — same shell (title, description,
+// photo, scheduling) so a flight/hotel/train row expands into something that
+// reads identically to a place, plus a "Details" block for the fields only
+// bookings carry (confirmation code, flight number, price). A booking has no
+// photo of its own — linking it to a library place (optional, not offered for
+// hotels since their own address already fills that role) is how it gets one.
+function BookingDetailPanel({
+  tripId,
+  entry,
+  place,
+  legOptions,
+  placeOptions,
+  onClose,
+}: {
+  tripId: number;
+  entry: Entry;
+  place: Place | undefined;
+  legOptions: LegOption[];
+  placeOptions: { id: number; name: string }[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const booking = entry.booking!;
+  const bookingType = BOOKING_TYPES.find((t) => t.key === booking.type);
+
+  const [title, setTitle] = useState(booking.title);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [notes, setNotes] = useState(booking.notes ?? "");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [confirmationCode, setConfirmationCode] = useState(booking.confirmationCode ?? "");
+  const [savingConfirmation, setSavingConfirmation] = useState(false);
+  const [flightNumber, setFlightNumber] = useState(booking.flightNumber ?? "");
+  const [savingFlightNumber, setSavingFlightNumber] = useState(false);
+  const [price, setPrice] = useState(booking.price != null ? String(booking.price) : "");
+  const [currency, setCurrency] = useState(booking.currency ?? "");
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [placeIdSel, setPlaceIdSel] = useState(booking.placeId != null ? String(booking.placeId) : "");
+  const [savingPlace, setSavingPlace] = useState(false);
+
+  const [legId, setLegId] = useState(booking.legId != null ? String(booking.legId) : "");
+  const [startDate, setStartDate] = useState(booking.startAt?.slice(0, 10) ?? "");
+  const [startTime, setStartTime] = useState(() => {
+    const t = booking.startAt?.slice(11, 16) ?? "";
+    return t === "00:00" ? "" : t;
+  });
+  const [endDate, setEndDate] = useState(booking.endAt?.slice(0, 10) ?? "");
+  const [endTime, setEndTime] = useState(() => {
+    const t = booking.endAt?.slice(11, 16) ?? "";
+    return t === "00:00" ? "" : t;
+  });
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
+  async function patch(body: Parameters<typeof travelApi.bookings.update>[2]) {
+    await travelApi.bookings.update(tripId, booking.id, body);
+    await queryClient.invalidateQueries({ queryKey: ["bookings", tripId] });
+  }
+
+  async function saveTitle() {
+    setEditingTitle(false);
+    if (!title.trim() || title.trim() === booking.title) {
+      setTitle(booking.title);
+      return;
+    }
+    setSavingTitle(true);
+    try {
+      await patch({ title: title.trim() });
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
+  async function saveNotes() {
+    if (notes === (booking.notes ?? "")) return;
+    setSavingNotes(true);
+    try {
+      await patch({ notes: notes.trim() });
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
+  async function saveConfirmation() {
+    if (confirmationCode === (booking.confirmationCode ?? "")) return;
+    setSavingConfirmation(true);
+    try {
+      await patch({ confirmationCode: confirmationCode.trim() });
+    } finally {
+      setSavingConfirmation(false);
+    }
+  }
+
+  async function saveFlightNumber() {
+    if (flightNumber === (booking.flightNumber ?? "")) return;
+    setSavingFlightNumber(true);
+    try {
+      await patch({ flightNumber: flightNumber.trim() });
+    } finally {
+      setSavingFlightNumber(false);
+    }
+  }
+
+  async function savePrice() {
+    const numericPrice = price ? Number(price) : undefined;
+    if (numericPrice === (booking.price ?? undefined) && currency === (booking.currency ?? "")) return;
+    setSavingPrice(true);
+    try {
+      await patch({ price: numericPrice, currency: currency.trim() || undefined });
+    } finally {
+      setSavingPrice(false);
+    }
+  }
+
+  async function saveLinkedPlace(value: string) {
+    setPlaceIdSel(value);
+    setSavingPlace(true);
+    try {
+      await patch({ placeId: value ? Number(value) : undefined });
+    } finally {
+      setSavingPlace(false);
+    }
+  }
+
+  async function saveSchedule() {
+    setSavingSchedule(true);
+    try {
+      await patch({
+        legId: legId ? Number(legId) : undefined,
+        startAt: startDate ? `${startDate}T${startTime || "00:00"}:00` : undefined,
+        endAt: endDate ? `${endDate}T${endTime || "00:00"}:00` : undefined,
+      });
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
+  async function remove() {
+    await travelApi.bookings.remove(tripId, booking.id);
+    await queryClient.invalidateQueries({ queryKey: ["bookings", tripId] });
+    onClose();
+  }
+
+  return (
+    <li className="flex gap-4 overflow-hidden rounded border border-category-transit bg-surface p-4 shadow-sm">
+      <div className="min-w-0 flex-1 space-y-3">
+        <div>
+          <div className="flex items-center gap-1">
+            {editingTitle ? (
+              <input
+                autoFocus
+                className="w-full min-w-0 flex-1 rounded border border-gridline bg-transparent p-1 text-lg font-semibold text-text-primary"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={saveTitle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  if (e.key === "Escape") {
+                    setTitle(booking.title);
+                    setEditingTitle(false);
+                  }
+                }}
+              />
+            ) : (
+              <h4 onClick={onClose} title="Click to collapse" className="cursor-pointer text-lg font-semibold text-text-primary">
+                {booking.title}
+              </h4>
+            )}
+            {!editingTitle && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTitle(booking.title);
+                  setEditingTitle(true);
+                }}
+                title="Edit title"
+                className="text-text-muted hover:text-text-primary"
+              >
+                <span className="material-symbols-outlined text-base" aria-hidden="true">
+                  edit
+                </span>
+              </button>
+            )}
+            {savingTitle && <span className="text-xs text-text-muted">Saving…</span>}
+          </div>
+          <button onClick={onClose} className="text-left" title="Click to collapse">
+            <p className="text-xs uppercase text-text-muted">{bookingType?.label ?? booking.type}</p>
+            {(booking.address || place?.address) && (
+              <p className="text-sm text-text-secondary">{booking.address || place?.address}</p>
+            )}
+          </button>
+        </div>
+
+        <div>
+          <textarea
+            className="w-full resize-none rounded border border-transparent bg-transparent p-1 text-sm text-text-secondary hover:border-gridline focus:border-gridline focus:outline-none"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={saveNotes}
+            placeholder="Add notes about this booking…"
+          />
+          {savingNotes && <span className="text-xs text-text-muted">Saving…</span>}
+        </div>
+
+        {booking.type !== "hotel" && (
+          <div className="border-t border-gridline pt-3">
+            <label className="block text-xs font-medium text-text-muted">Linked place</label>
+            <select
+              className="mt-1 w-full rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+              value={placeIdSel}
+              onChange={(e) => saveLinkedPlace(e.target.value)}
+            >
+              <option value="">None</option>
+              {placeOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            {savingPlace && <span className="text-xs text-text-muted">Saving…</span>}
+          </div>
+        )}
+
+        <div className="border-t border-gridline pt-3">
+          <label className="block text-xs font-medium text-text-muted">Details</label>
+          <div className="mt-1 flex gap-2">
+            <label className="flex-1 text-xs text-text-muted">
+              Confirmation code
+              <input
+                className="mt-0.5 w-full rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+                value={confirmationCode}
+                onChange={(e) => setConfirmationCode(e.target.value)}
+                onBlur={saveConfirmation}
+              />
+            </label>
+            {booking.type === "flight" && (
+              <label className="flex-1 text-xs text-text-muted">
+                Flight number
+                <input
+                  className="mt-0.5 w-full rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+                  value={flightNumber}
+                  onChange={(e) => setFlightNumber(e.target.value)}
+                  onBlur={saveFlightNumber}
+                />
+              </label>
+            )}
+          </div>
+          <div className="mt-2 flex gap-2">
+            <label className="flex-1 text-xs text-text-muted">
+              Price
+              <input
+                type="number"
+                className="mt-0.5 w-full rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                onBlur={savePrice}
+              />
+            </label>
+            <label className="w-24 text-xs text-text-muted">
+              Currency
+              <input
+                className="mt-0.5 w-full rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                onBlur={savePrice}
+              />
+            </label>
+          </div>
+          {savingPrice && <span className="text-xs text-text-muted">Saving…</span>}
+        </div>
+
+        <div className="border-t border-gridline pt-3">
+          <label className="block text-xs font-medium text-text-muted">Scheduling</label>
+          <select
+            className="mt-1 w-full rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+            value={legId}
+            onChange={(e) => setLegId(e.target.value)}
+          >
+            <option value="">No city</option>
+            {legOptions.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.city}
+              </option>
+            ))}
+          </select>
+          <div className="mt-2 flex gap-2">
+            <input
+              type="date"
+              className="flex-1 rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+            <input
+              type="time"
+              className="w-28 rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
+          </div>
+          <div className="mt-2 flex gap-2">
+            <input
+              type="date"
+              className="flex-1 rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+            <input
+              type="time"
+              className="w-28 rounded border border-gridline bg-transparent p-2 text-sm text-text-primary"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <button
+              onClick={saveSchedule}
+              disabled={savingSchedule}
+              className="rounded bg-category-transit px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Save
+            </button>
+            <button onClick={remove} className="text-sm text-status-critical">
+              Delete booking
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex h-56 w-56 shrink-0 items-center justify-center self-start overflow-hidden bg-page sm:h-80 sm:w-80">
+        {place?.heroPhotoUrl ? (
+          <img src={place.heroPhotoUrl} alt={booking.title} className="max-h-full max-w-full object-contain" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center p-4 text-center text-sm text-text-muted">
+            {place ? "Linked place has no photo" : "Link a place above to add a photo"}
+          </span>
+        )}
+      </div>
+    </li>
+  );
+}
+
 function LegHeader({
   tripId,
   leg,
@@ -1233,7 +1617,6 @@ export function TripItinerary({
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [newCity, setNewCity] = useState("");
   const [addingCity, setAddingCity] = useState(false);
-  const [legSortMode, setLegSortMode] = useState<Record<number, LegSortMode>>({});
   // Every section (Pre-Trip, Post-Trip, each city) expands by default; a
   // collapse choice is remembered per-trip in localStorage so it survives
   // across sessions. Keys are "pre", "post", or `leg-<id>`.
@@ -1302,8 +1685,14 @@ export function TripItinerary({
   const placeOptions = (tripPlaces ?? []).map((p) => ({ id: p.id, name: p.name }));
 
   const hotelBookingByLegId = new Map<number, Booking>();
+  // A flight/train/car booking assigned to a leg is treated as the transport
+  // that carried the traveler INTO that leg — rendered as a divider between
+  // the previous leg and this one instead of as a regular list entry.
+  const transportBookingByLegId = new Map<number, Booking>();
+  const TRANSPORT_TYPES = new Set(["flight", "train", "car"]);
   for (const b of bookings ?? []) {
     if (b.type === "hotel" && b.legId != null && !hotelBookingByLegId.has(b.legId)) hotelBookingByLegId.set(b.legId, b);
+    if (TRANSPORT_TYPES.has(b.type) && b.legId != null && !transportBookingByLegId.has(b.legId)) transportBookingByLegId.set(b.legId, b);
   }
 
   // Marking complete backfills scheduledDate with today's local date only if
@@ -1377,6 +1766,9 @@ export function TripItinerary({
     // A leg's own hotel booking is already surfaced in that leg's header — don't
     // also list it as a plain activity underneath.
     if (entry.kind === "booking" && entry.legId != null && hotelBookingByLegId.get(entry.legId)?.id === entry.booking?.id) continue;
+    // Likewise, a leg's inbound transport booking is surfaced as the divider
+    // above that leg's section instead.
+    if (entry.kind === "booking" && entry.legId != null && transportBookingByLegId.get(entry.legId)?.id === entry.booking?.id) continue;
     const key = groupFor(entry, sortedLegs, earliestStart, latestEnd);
     groups.set(key, [...(groups.get(key) ?? []), entry]);
   }
@@ -1441,12 +1833,25 @@ export function TripItinerary({
         />
       );
     }
+    if (entry.kind === "booking" && expandedKey === entry.key) {
+      return (
+        <BookingDetailPanel
+          key={entry.key}
+          tripId={tripId}
+          entry={entry}
+          place={entry.booking?.placeId != null ? placesById.get(entry.booking.placeId) : undefined}
+          legOptions={legOptions}
+          placeOptions={placeOptions}
+          onClose={() => setExpandedKey(null)}
+        />
+      );
+    }
     return (
       <EntryRow
         key={entry.key}
         entry={entry}
         fading={fadingKeys.has(entry.key)}
-        onClick={() => (entry.kind === "place" ? setExpandedKey(entry.key) : setEditingEntry(entry))}
+        onClick={() => (entry.kind === "activity" ? setEditingEntry(entry) : setExpandedKey(entry.key))}
         onToggleComplete={toggleComplete}
         onHoverPlace={onHoverPlace}
       />
@@ -1474,76 +1879,85 @@ export function TripItinerary({
         </section>
       )}
 
-      {sortedLegs.map((leg) => {
-        const sortMode = legSortMode[leg.id] ?? "date";
-        const legEntries = sortLegEntries(groups.get(`leg-${leg.id}`) ?? [], sortMode);
+      {sortedLegs.map((leg, legIndex) => {
         const legKey = `leg-${leg.id}`;
         const expanded = !collapsedSections.has(legKey);
+        const rawLegEntries = sortEntries(groups.get(legKey) ?? []);
+        const totalCount = rawLegEntries.length;
+        const visitedCount = rawLegEntries.filter((e) => e.completed).length;
+        const categoryGroups = groupByCategory(rawLegEntries);
+        const prevLeg = legIndex > 0 ? sortedLegs[legIndex - 1] : null;
+        const transportBooking = transportBookingByLegId.get(leg.id);
         return (
-          <section key={leg.id} ref={sectionRef(String(leg.id))} className="rounded border border-gridline bg-surface p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-start gap-1">
-                <button
-                  onClick={() => toggleSection(legKey)}
-                  title={expanded ? `Collapse ${leg.city}` : `Expand ${leg.city}`}
-                  aria-label={expanded ? `Collapse ${leg.city}` : `Expand ${leg.city}`}
-                  className="mt-1 shrink-0 text-text-muted hover:text-text-primary"
-                >
-                  <span className="material-symbols-outlined text-xl" aria-hidden="true">
-                    {expanded ? "expand_more" : "chevron_right"}
-                  </span>
-                </button>
-                <LegHeader
-                  tripId={tripId}
-                  leg={leg}
-                  hotelBooking={hotelBookingByLegId.get(leg.id)}
-                  onEditHotel={(booking) => setEditingEntry(bookingEntry(booking))}
-                />
-              </div>
-              {expanded && (
-                <div className="flex shrink-0 flex-col items-end gap-1">
+          <div key={leg.id} className="space-y-2">
+            {prevLeg && transportBooking && (
+              <TransportDivider booking={transportBooking} fromCity={prevLeg.city} toCity={leg.city} />
+            )}
+            <section ref={sectionRef(String(leg.id))} className="rounded border border-gridline bg-surface p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-start gap-1">
                   <button
-                    onClick={() => setAddingLegId(leg.id)}
-                    title={`Add to ${leg.city}`}
-                    aria-label={`Add to ${leg.city}`}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-category-transit text-white transition-all duration-150 hover:scale-110 hover:brightness-110 hover:shadow-md"
+                    onClick={() => toggleSection(legKey)}
+                    title={expanded ? `Collapse ${leg.city}` : `Expand ${leg.city}`}
+                    aria-label={expanded ? `Collapse ${leg.city}` : `Expand ${leg.city}`}
+                    className="mt-1 shrink-0 text-text-muted hover:text-text-primary"
                   >
                     <span className="material-symbols-outlined text-xl" aria-hidden="true">
-                      add
+                      {expanded ? "expand_more" : "chevron_right"}
                     </span>
                   </button>
-                  <div className="flex gap-1">
+                  <LegHeader
+                    tripId={tripId}
+                    leg={leg}
+                    hotelBooking={hotelBookingByLegId.get(leg.id)}
+                    onEditHotel={(booking) => setEditingEntry(bookingEntry(booking))}
+                  />
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {totalCount > 0 && (
+                    <span className="text-sm font-medium text-text-secondary">
+                      {visitedCount}/{totalCount} visited
+                    </span>
+                  )}
+                  {expanded && (
                     <button
-                      onClick={() => setLegSortMode((prev) => ({ ...prev, [leg.id]: sortMode === "alpha" ? "date" : "alpha" }))}
-                      className={`rounded-full px-2 py-0.5 text-xs ${
-                        sortMode === "alpha" ? "bg-category-transit text-white" : "bg-page text-text-secondary hover:text-text-primary"
-                      }`}
+                      onClick={() => setAddingLegId(leg.id)}
+                      title={`Add to ${leg.city}`}
+                      aria-label={`Add to ${leg.city}`}
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-category-transit text-white transition-all duration-150 hover:scale-110 hover:brightness-110 hover:shadow-md"
                     >
-                      A-Z
+                      <span className="material-symbols-outlined text-xl" aria-hidden="true">
+                        add
+                      </span>
                     </button>
-                    <button
-                      onClick={() =>
-                        setLegSortMode((prev) => ({ ...prev, [leg.id]: sortMode === "category" ? "date" : "category" }))
-                      }
-                      className={`rounded-full px-2 py-0.5 text-xs ${
-                        sortMode === "category" ? "bg-category-transit text-white" : "bg-page text-text-secondary hover:text-text-primary"
-                      }`}
-                    >
-                      Category
-                    </button>
-                  </div>
+                  )}
+                </div>
+              </div>
+              {expanded && rawLegEntries.length === 0 && <p className="text-sm text-text-muted">Nothing here yet.</p>}
+              {expanded && rawLegEntries.length > 0 && (
+                <div className="mt-3 space-y-3">
+                  {categoryGroups.map(([label, catEntries]) => {
+                    const catKey = `${legKey}::cat::${label}`;
+                    const catExpanded = !collapsedSections.has(catKey);
+                    return (
+                      <div key={label}>
+                        <button onClick={() => toggleSection(catKey)} className="mb-1 flex w-full items-center gap-2 text-left">
+                          <span className="material-symbols-outlined text-lg text-text-muted" aria-hidden="true">
+                            {catExpanded ? "expand_more" : "chevron_right"}
+                          </span>
+                          <CategoryDot entries={catEntries} />
+                          <span className="text-sm font-semibold uppercase tracking-wide text-text-secondary">
+                            {label} ({catEntries.length})
+                          </span>
+                        </button>
+                        {catExpanded && <ul className="space-y-1">{catEntries.map(renderEntry)}</ul>}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </div>
-            {expanded &&
-              (legEntries.length === 0 ? (
-                <p className="text-sm text-text-muted">Nothing here yet.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {legEntries.map(renderEntry)}
-                </ul>
-              ))}
-          </section>
+            </section>
+          </div>
         );
       })}
 
