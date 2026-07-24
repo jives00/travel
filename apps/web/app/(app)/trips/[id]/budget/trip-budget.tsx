@@ -16,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import type {
+  Booking,
   BudgetLine,
   CreateExpenseBody,
   Expense,
@@ -24,6 +25,12 @@ import type {
 import { EXPENSE_CATEGORIES, enumLabel } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { Modal } from "../trip-itinerary";
+import {
+  BookingFields,
+  type BookingFormState,
+  formToBody as bookingFormToBody,
+  bookingToForm,
+} from "@/components/booking-fields";
 
 // Category → generated theme.css var (see packages/ui-tokens), so chart
 // fills swap with light/dark automatically. Flights has no dedicated token,
@@ -100,6 +107,7 @@ export function TripBudget({ tripId }: { tripId: number }) {
   const [grouping, setGrouping] = useState<Grouping>("category");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
 
   const legName = useMemo(() => {
     const map = new Map<number, string>();
@@ -123,6 +131,12 @@ export function TripBudget({ tripId }: { tripId: number }) {
     return map;
   }, [expenses]);
 
+  const bookingById = useMemo(() => {
+    const map = new Map<number, Booking>();
+    for (const b of bookings ?? []) map.set(b.id, b);
+    return map;
+  }, [bookings]);
+
   async function refresh() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["budget", tripId] }),
@@ -130,9 +144,21 @@ export function TripBudget({ tripId }: { tripId: number }) {
     ]);
   }
 
+  async function refreshBooking() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["budget", tripId] }),
+      queryClient.invalidateQueries({ queryKey: ["bookings", tripId] }),
+    ]);
+  }
+
   async function removeExpense(expenseId: number) {
     await travelApi.expenses.remove(tripId, expenseId);
     await refresh();
+  }
+
+  async function removeBooking(bookingId: number) {
+    await travelApi.bookings.remove(tripId, bookingId);
+    await refreshBooking();
   }
 
   if (!trip || !budget) return null;
@@ -270,12 +296,19 @@ export function TripBudget({ tripId }: { tripId: number }) {
                                 setFormOpen(true);
                               }
                             }
-                          : undefined
+                          : line.source === "booking" && line.bookingId != null
+                            ? () => {
+                                const b = bookingById.get(line.bookingId!);
+                                if (b) setEditingBooking(b);
+                              }
+                            : undefined
                       }
                       onDelete={
                         line.source === "manual" && line.expenseId != null
                           ? () => removeExpense(line.expenseId!)
-                          : undefined
+                          : line.source === "booking" && line.bookingId != null
+                            ? () => removeBooking(line.bookingId!)
+                            : undefined
                       }
                     />
                   ))}
@@ -317,7 +350,66 @@ export function TripBudget({ tripId }: { tripId: number }) {
           }}
         />
       )}
+
+      {editingBooking && (
+        <BookingEditModal
+          tripId={tripId}
+          booking={editingBooking}
+          legOptions={trip.legs.map((l) => ({ id: l.id, city: l.city }))}
+          onClose={() => setEditingBooking(null)}
+          onSaved={async () => {
+            setEditingBooking(null);
+            await refreshBooking();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function BookingEditModal({
+  tripId,
+  booking,
+  legOptions,
+  onClose,
+  onSaved,
+}: {
+  tripId: number;
+  booking: Booking;
+  legOptions: { id: number; city: string }[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<BookingFormState>(() => bookingToForm(booking));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await travelApi.bookings.update(tripId, booking.id, bookingFormToBody(form));
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} wide>
+      <h2 className="mb-3 text-lg font-semibold text-text-primary">Edit booking</h2>
+      <BookingFields form={form} onChange={setForm} legOptions={legOptions} placeOptions={[]} />
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={save}
+          disabled={saving || !form.title.trim()}
+          className="rounded bg-category-transit px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button onClick={onClose} className="text-sm text-text-secondary">
+          Cancel
+        </button>
+      </div>
+    </Modal>
   );
 }
 

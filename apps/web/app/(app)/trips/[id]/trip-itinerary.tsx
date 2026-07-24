@@ -47,21 +47,6 @@ function formatDateRange(start: string, end: string): string {
   return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
-function formatDateShort(d: string): string {
-  return dateOnly(toDateOnlyString(d)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-}
-
-function formatDurationBetween(startAt: string | null, endAt: string | null): string | null {
-  if (!startAt || !endAt) return null;
-  const totalMinutes = Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000);
-  if (!(totalMinutes > 0)) return null;
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
-}
-
 type EntryKind = "booking" | "place" | "activity";
 
 interface Entry {
@@ -205,43 +190,6 @@ function CategoryDot({ entries }: { entries: Entry[] }) {
   const group = entries.find((e) => e.mapPinGroup)?.mapPinGroup ?? "other";
   const color = (MAP_PIN_COLORS[group] ?? MAP_PIN_COLORS.other)[theme];
   return <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />;
-}
-
-/** The dashed inter-leg divider — surfaces a flight/train/car booking that's
- * assigned to the *arriving* leg as "<type> · <from city> → <to city> · <date>
- * · <duration>", Wanderlog-style. There's no dedicated transport entity; a
- * booking already carries a single legId, so we treat "the transport booking
- * on leg B" as the trip from the previous leg into B. */
-function TransportDivider({ booking, fromCity, toCity }: { booking: Booking; fromCity: string; toCity: string }) {
-  const bookingType = BOOKING_TYPES.find((t) => t.key === booking.type);
-  const dateLabel = booking.startAt ? formatDateShort(booking.startAt) : null;
-  const duration = formatDurationBetween(booking.startAt, booking.endAt);
-  return (
-    <div className="flex items-center gap-2 rounded border border-dashed border-category-transit bg-category-transit/10 px-3 py-2 text-sm text-text-primary">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-category-transit text-white">
-        <span className="material-symbols-outlined text-sm" aria-hidden="true">
-          {bookingType?.iconName ?? "directions_transit"}
-        </span>
-      </span>
-      <span className="font-medium">{bookingType?.label ?? booking.type}</span>
-      <span className="text-text-muted">·</span>
-      <span>
-        {fromCity} → {toCity}
-      </span>
-      {dateLabel && (
-        <>
-          <span className="text-text-muted">·</span>
-          <span>{dateLabel}</span>
-        </>
-      )}
-      {duration && (
-        <>
-          <span className="text-text-muted">·</span>
-          <span>{duration}</span>
-        </>
-      )}
-    </div>
-  );
 }
 
 export function Modal({
@@ -1685,14 +1633,8 @@ export function TripItinerary({
   const placeOptions = (tripPlaces ?? []).map((p) => ({ id: p.id, name: p.name }));
 
   const hotelBookingByLegId = new Map<number, Booking>();
-  // A flight/train/car booking assigned to a leg is treated as the transport
-  // that carried the traveler INTO that leg — rendered as a divider between
-  // the previous leg and this one instead of as a regular list entry.
-  const transportBookingByLegId = new Map<number, Booking>();
-  const TRANSPORT_TYPES = new Set(["flight", "train", "car"]);
   for (const b of bookings ?? []) {
     if (b.type === "hotel" && b.legId != null && !hotelBookingByLegId.has(b.legId)) hotelBookingByLegId.set(b.legId, b);
-    if (TRANSPORT_TYPES.has(b.type) && b.legId != null && !transportBookingByLegId.has(b.legId)) transportBookingByLegId.set(b.legId, b);
   }
 
   // Marking complete backfills scheduledDate with today's local date only if
@@ -1766,9 +1708,6 @@ export function TripItinerary({
     // A leg's own hotel booking is already surfaced in that leg's header — don't
     // also list it as a plain activity underneath.
     if (entry.kind === "booking" && entry.legId != null && hotelBookingByLegId.get(entry.legId)?.id === entry.booking?.id) continue;
-    // Likewise, a leg's inbound transport booking is surfaced as the divider
-    // above that leg's section instead.
-    if (entry.kind === "booking" && entry.legId != null && transportBookingByLegId.get(entry.legId)?.id === entry.booking?.id) continue;
     const key = groupFor(entry, sortedLegs, earliestStart, latestEnd);
     groups.set(key, [...(groups.get(key) ?? []), entry]);
   }
@@ -1879,20 +1818,15 @@ export function TripItinerary({
         </section>
       )}
 
-      {sortedLegs.map((leg, legIndex) => {
+      {sortedLegs.map((leg) => {
         const legKey = `leg-${leg.id}`;
         const expanded = !collapsedSections.has(legKey);
         const rawLegEntries = sortEntries(groups.get(legKey) ?? []);
         const totalCount = rawLegEntries.length;
         const visitedCount = rawLegEntries.filter((e) => e.completed).length;
         const categoryGroups = groupByCategory(rawLegEntries);
-        const prevLeg = legIndex > 0 ? sortedLegs[legIndex - 1] : null;
-        const transportBooking = transportBookingByLegId.get(leg.id);
         return (
           <div key={leg.id} className="space-y-2">
-            {prevLeg && transportBooking && (
-              <TransportDivider booking={transportBooking} fromCity={prevLeg.city} toCity={leg.city} />
-            )}
             <section ref={sectionRef(String(leg.id))} className="rounded border border-gridline bg-surface p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-start gap-1">
