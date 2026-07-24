@@ -1,5 +1,6 @@
 export * from "./enums";
 export * from "./place-tags";
+export * from "./itineraryCategory";
 export * from "./legMath";
 export * from "./tripStatus";
 export * from "./tripDates";

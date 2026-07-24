@@ -11,6 +11,7 @@ export const PlaceTag = z.enum([
   "day_trip",
   "food_drinks",
   "lodging",
+  "nightlife",
   "other",
   "shopping",
   "site",

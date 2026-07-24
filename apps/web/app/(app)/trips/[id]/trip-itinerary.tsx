@@ -3,7 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, ItineraryItem, Leg, Place, PlaceTag } from "@travel/types";
-import { BOOKING_TYPES, PLACE_TAGS, enumLabel, mapPinGroupForTag, mapPinGroupForBookingType, todayDateString } from "@travel/core";
+import {
+  BOOKING_TYPES,
+  PLACE_TAGS,
+  enumLabel,
+  mapPinGroupForTag,
+  mapPinGroupForBookingType,
+  todayDateString,
+  itineraryCategoryLabel,
+  compareItineraryCategories,
+} from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
 import { useTheme } from "@/lib/theme-context";
@@ -74,8 +83,8 @@ interface Entry {
   // Place/idea entries are checked off via itinerary_items.completed; booking
   // entries are checked off via bookings.completed — same UI, different column.
   completed: boolean;
-  // Human-readable grouping label used only by the "Category" sort mode —
-  // a place's primary tag, a booking's type, or "Idea".
+  // Which collapsible category section this entry sorts into — see
+  // itineraryCategoryLabel in @travel/core (date presence wins over tag/type).
   categoryLabel: string;
   // Set only for place entries — same map-pin color grouping used on the
   // trip map, so a place's icon circle matches its marker there.
@@ -101,22 +110,10 @@ function bookingEntry(b: Booking): Entry {
     description: b.notes ?? undefined,
     isPrivate: false,
     completed: b.completed,
-    // A "Tour / Activity" booking reads the same as a day-trip place to a
-    // traveler planning their itinerary — grouped into "Day Trips & Tours"
-    // here rather than standing alone (see itineraryCategoryLabel below).
-    categoryLabel: b.type === "activity" ? "Day Trips & Tours" : (bookingType?.label ?? b.type),
+    categoryLabel: itineraryCategoryLabel({ hasDate: scheduledDate != null, kind: "booking", bookingType: b.type }),
     mapPinGroup: mapPinGroupForBookingType(b.type) as MapPinGroup,
     booking: b,
   };
-}
-
-// Itinerary-only category grouping label — "activity" (Tour / Activity) and
-// "day_trip" both read as trip-planning outings to a traveler, so they're
-// merged into one section here even though they stay distinct tags
-// elsewhere (map pins, the place editor's tag dropdown, etc).
-function itineraryCategoryLabel(tag: PlaceTag | null | undefined, fallbackLabel: string): string {
-  if (tag === "activity" || tag === "day_trip") return "Day Trips & Tours";
-  return fallbackLabel;
 }
 
 function itemEntry(i: ItineraryItem, placesById: Map<number, Place>): Entry {
@@ -137,7 +134,11 @@ function itemEntry(i: ItineraryItem, placesById: Map<number, Place>): Entry {
     placeId: isPlace ? place?.id : undefined,
     isPrivate: i.isPrivate,
     completed: i.completed,
-    categoryLabel: isPlace ? itineraryCategoryLabel(place?.primaryTag, placeTag?.label ?? "Uncategorized") : "Idea",
+    categoryLabel: itineraryCategoryLabel({
+      hasDate: i.scheduledDate != null,
+      kind: isPlace ? "place" : "activity",
+      placeTag: place?.primaryTag,
+    }),
     mapPinGroup: isPlace ? (mapPinGroupForTag(place?.primaryTag) as MapPinGroup) : undefined,
     item: i,
   };
@@ -177,12 +178,13 @@ function sortEntries(entries: Entry[]): Entry[] {
   });
 }
 
-/** Buckets already-sorted entries by their category label, in alphabetical
- * label order — drives the collapsible category sections within a leg. */
+/** Buckets already-sorted entries by their category label, in
+ * ITINERARY_CATEGORIES' fixed display order — drives the collapsible
+ * category sections within a leg. */
 function groupByCategory(entries: Entry[]): [string, Entry[]][] {
   const map = new Map<string, Entry[]>();
   for (const entry of entries) map.set(entry.categoryLabel, [...(map.get(entry.categoryLabel) ?? []), entry]);
-  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return [...map.entries()].sort((a, b) => compareItineraryCategories(a[0], b[0]));
 }
 
 function CategoryDot({ entries }: { entries: Entry[] }) {

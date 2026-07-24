@@ -9,6 +9,7 @@ export const MAP_PIN_GROUPS = [
   "day_trip",
   "food_drinks",
   "lodging",
+  "nightlife",
   "other",
   "shopping",
   "site",
@@ -23,6 +24,7 @@ export const MAP_PIN_COLORS: Record<MapPinGroup, ThemedColor> = {
   // Hotel bookings, not a place tag — reuses CATEGORY_COLORS' unused "lodging"
   // purple, which fits the name.
   lodging: { light: "#4a3aa7", dark: "#9085e9" },
+  nightlife: { light: "#c026d3", dark: "#d946ef" },
   // Fallback for places with an unrecognized/missing primaryTag.
   other: { light: "#e87ba4", dark: "#d55181" },
   shopping: { light: "#eda100", dark: "#c98500" },

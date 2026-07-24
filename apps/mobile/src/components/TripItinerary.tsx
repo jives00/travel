@@ -3,7 +3,16 @@ import { View, Text, Pressable, Image, Linking } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import type { Booking, BookingType, ItineraryItem, Leg, Place, PlaceTag } from "@travel/types";
-import { BOOKING_TYPES, PLACE_TAGS, enumLabel, mapPinGroupForTag, mapPinGroupForBookingType, todayDateString } from "@travel/core";
+import {
+  BOOKING_TYPES,
+  PLACE_TAGS,
+  enumLabel,
+  mapPinGroupForTag,
+  mapPinGroupForBookingType,
+  todayDateString,
+  itineraryCategoryLabel,
+  compareItineraryCategories,
+} from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
 import { useTheme } from "../lib/theme";
@@ -28,8 +37,8 @@ interface Entry {
   itemId?: number; // itinerary item id (place/activity)
   bookingId?: number;
   placeId?: number;
-  // Human-readable grouping label for the collapsible category sections
-  // within a leg — a place's primary tag, a booking's type, or "Idea".
+  // Which collapsible category section this entry sorts into — see
+  // itineraryCategoryLabel in @travel/core (date presence wins over tag/type).
   categoryLabel: string;
   // Same map-pin color grouping used on the trip map, drives the category
   // section's colored dot. Unset for ideas.
@@ -37,29 +46,21 @@ interface Entry {
   booking?: Booking;
 }
 
-// Itinerary-only category grouping label — "activity" (Tour / Activity) and
-// "day_trip" both read as trip-planning outings, so they're merged into one
-// section here even though they stay distinct tags elsewhere (map pins, the
-// place editor's tag picker, etc). Mirrors web's trip-itinerary.tsx.
-function itineraryCategoryLabel(tag: PlaceTag | null | undefined, fallbackLabel: string): string {
-  if (tag === "activity" || tag === "day_trip") return "Day Trips & Tours";
-  return fallbackLabel;
-}
-
 function bookingEntry(b: Booking): Entry {
   const t = BOOKING_TYPES.find((x) => x.key === b.type);
+  const scheduledDate = b.startAt ? b.startAt.slice(0, 10) : null;
   return {
     key: `b-${b.id}`,
     kind: "booking",
     legId: b.legId,
-    scheduledDate: b.startAt ? b.startAt.slice(0, 10) : null,
+    scheduledDate,
     time: b.startAt && b.startAt.slice(11, 16) !== "00:00" ? b.startAt.slice(11, 16) : null,
     title: b.title,
     subtitle: t?.label ?? b.type,
     isPrivate: false,
     completed: b.completed,
     bookingId: b.id,
-    categoryLabel: b.type === "activity" ? "Day Trips & Tours" : (t?.label ?? b.type),
+    categoryLabel: itineraryCategoryLabel({ hasDate: scheduledDate != null, kind: "booking", bookingType: b.type }),
     mapPinGroup: mapPinGroupForBookingType(b.type) as MapPinGroup,
     booking: b,
   };
@@ -68,7 +69,6 @@ function bookingEntry(b: Booking): Entry {
 function itemEntry(i: ItineraryItem, placeById: Map<number, Place>): Entry {
   const isPlace = i.itemType === "place";
   const place = isPlace && i.placeId != null ? placeById.get(i.placeId) : undefined;
-  const placeTag = isPlace && place?.primaryTag ? PLACE_TAGS.find((t) => t.key === place.primaryTag) : undefined;
   return {
     key: `i-${i.id}`,
     kind: isPlace ? "place" : "activity",
@@ -81,17 +81,22 @@ function itemEntry(i: ItineraryItem, placeById: Map<number, Place>): Entry {
     completed: i.completed,
     itemId: i.id,
     placeId: isPlace ? (i.placeId ?? undefined) : undefined,
-    categoryLabel: isPlace ? itineraryCategoryLabel(place?.primaryTag, placeTag?.label ?? "Uncategorized") : "Idea",
+    categoryLabel: itineraryCategoryLabel({
+      hasDate: i.scheduledDate != null,
+      kind: isPlace ? "place" : "activity",
+      placeTag: place?.primaryTag,
+    }),
     mapPinGroup: isPlace ? (mapPinGroupForTag(place?.primaryTag) as MapPinGroup) : undefined,
   };
 }
 
-/** Buckets already-sorted entries by their category label, alphabetically —
- * drives the collapsible category sections within a leg. Mirrors web. */
+/** Buckets already-sorted entries by their category label, in
+ * ITINERARY_CATEGORIES' fixed display order — drives the collapsible
+ * category sections within a leg. Mirrors web. */
 function groupByCategory(entries: Entry[]): [string, Entry[]][] {
   const map = new Map<string, Entry[]>();
   for (const entry of entries) map.set(entry.categoryLabel, [...(map.get(entry.categoryLabel) ?? []), entry]);
-  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return [...map.entries()].sort((a, b) => compareItineraryCategories(a[0], b[0]));
 }
 
 function CategoryDot({ entries }: { entries: Entry[] }) {

@@ -12,6 +12,7 @@ export const PLACE_TAGS: EnumEntry[] = [
   { key: "day_trip", label: "Day Trip", iconName: "explore" },
   { key: "food_drinks", label: "Food & Drinks", iconName: "restaurant" },
   { key: "lodging", label: "Lodging", iconName: "hotel" },
+  { key: "nightlife", label: "Nightlife", iconName: "nightlife" },
   { key: "other", label: "Other", iconName: "place" },
   { key: "shopping", label: "Shopping", iconName: "storefront" },
   { key: "site", label: "Site", iconName: "museum" },
@@ -62,14 +63,14 @@ const GOOGLE_TYPE_TO_TAG: Record<string, string> = {
   cafe: "food_drinks",
   coffee_shop: "food_drinks",
   bakery: "food_drinks",
-  bar: "food_drinks",
-  pub: "food_drinks",
-  brewery: "food_drinks",
-  winery: "food_drinks",
+  bar: "nightlife",
+  pub: "nightlife",
+  brewery: "nightlife",
+  winery: "nightlife",
+  night_club: "nightlife",
   market: "shopping",
   farmers_market: "shopping",
   shopping_mall: "shopping",
-  night_club: "activity",
   performing_arts_theater: "activity",
   concert_hall: "activity",
   movie_theater: "activity",
@@ -103,7 +104,7 @@ export function suggestTagsFromGoogleTypes(googleTypes: string[] | null | undefi
 // When several of a place's Google types map to different tags, prefer the
 // most specific/distinctive match — most generic ("activity") goes last so
 // it only wins when nothing sharper matched.
-const TAG_PRIORITY = ["transit", "lodging", "site", "food_drinks", "shopping", "activity"];
+const TAG_PRIORITY = ["transit", "lodging", "site", "food_drinks", "nightlife", "shopping", "activity"];
 
 export function suggestPrimaryTagFromGoogleTypes(googleTypes: string[] | null | undefined): string | undefined {
   const candidates = new Set(suggestTagsFromGoogleTypes(googleTypes));
