@@ -106,77 +106,6 @@ function CategoryDot({ entries }: { entries: Entry[] }) {
   return <View className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />;
 }
 
-// "2026-07-18" -> "Jul 18" — used by the transport divider's short date label.
-function formatDateShort(d: string): string {
-  return new Date(`${toDateOnlyString(d)}T00:00:00Z`).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
-
-function formatDurationBetween(startAt: string | null, endAt: string | null): string | null {
-  if (!startAt || !endAt) return null;
-  const totalMinutes = Math.round((new Date(endAt).getTime() - new Date(startAt).getTime()) / 60000);
-  if (!(totalMinutes > 0)) return null;
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
-}
-
-/** The dashed inter-leg divider — surfaces a flight/train/car booking that's
- * assigned to the *arriving* leg as "<type> · <from city> → <to city> ·
- * <date> · <duration>", matching web's TransportDivider. */
-function TransportDivider({ booking, fromCity, toCity }: { booking: Booking; fromCity: string; toCity: string }) {
-  const t = BOOKING_TYPES.find((x) => x.key === booking.type);
-  const dateLabel = booking.startAt ? formatDateShort(booking.startAt) : null;
-  const duration = formatDurationBetween(booking.startAt, booking.endAt);
-  return (
-    <View
-      className="mb-2 flex-row flex-wrap items-center gap-2 rounded border border-category-transit bg-category-transit/10 px-3 py-2"
-      style={{ borderStyle: "dashed" }}
-    >
-      <View className="h-6 w-6 items-center justify-center rounded-full bg-category-transit">
-        <Ionicons name={transportIconFor(t?.iconName)} size={13} color="#fff" />
-      </View>
-      <Text className="text-sm font-medium text-text-primary dark:text-text-primary-dark">{t?.label ?? booking.type}</Text>
-      <Text className="text-sm text-text-muted">·</Text>
-      <Text className="text-sm text-text-primary dark:text-text-primary-dark">
-        {fromCity} → {toCity}
-      </Text>
-      {dateLabel && (
-        <>
-          <Text className="text-sm text-text-muted">·</Text>
-          <Text className="text-sm text-text-primary dark:text-text-primary-dark">{dateLabel}</Text>
-        </>
-      )}
-      {duration && (
-        <>
-          <Text className="text-sm text-text-muted">·</Text>
-          <Text className="text-sm text-text-primary dark:text-text-primary-dark">{duration}</Text>
-        </>
-      )}
-    </View>
-  );
-}
-
-// Material Symbols ligature names (used by core's BOOKING_TYPES) don't exist
-// in Ionicons — map the transport-relevant ones to their closest equivalent.
-function transportIconFor(materialIconName: string | undefined): React.ComponentProps<typeof Ionicons>["name"] {
-  switch (materialIconName) {
-    case "flight":
-      return "airplane";
-    case "train":
-      return "train";
-    case "directions_car":
-      return "car";
-    default:
-      return "swap-horizontal";
-  }
-}
-
 function combineDateTime(date: string, time: string): string | undefined {
   if (!date.trim()) return undefined;
   return `${date.trim()}T${time.trim() || "00:00"}:00`;
@@ -657,30 +586,13 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
   const placeById = useMemo(() => new Map((places ?? []).map((p) => [p.id, p])), [places]);
   const placeOptions = useMemo(() => (places ?? []).map((p) => ({ id: p.id, name: p.name })), [places]);
 
-  // A flight/train/car booking assigned to a leg is treated as the transport
-  // that carried the traveler INTO that leg — rendered as a dashed divider
-  // between the previous leg and this one instead of as a regular list entry.
-  const TRANSPORT_TYPES = new Set(["flight", "train", "car"]);
-  const transportBookingByLegId = useMemo(() => {
-    const map = new Map<number, Booking>();
-    for (const b of bookings ?? []) {
-      if (TRANSPORT_TYPES.has(b.type) && b.legId != null && !map.has(b.legId)) map.set(b.legId, b);
-    }
-    return map;
-  }, [bookings]);
-
   const entries = useMemo(() => {
     const showPrivate = settings?.showPrivateItems ?? true;
-    const list: Entry[] = [
+    return [
       ...(bookings ?? []).map(bookingEntry),
       ...(items ?? []).map((i) => itemEntry(i, placeById)),
     ].filter((e) => showPrivate || !e.isPrivate);
-    // A leg's inbound transport booking is surfaced as the divider above that
-    // leg's section instead of also being listed as a plain entry.
-    return list.filter(
-      (e) => !(e.kind === "booking" && e.legId != null && transportBookingByLegId.get(e.legId)?.id === e.bookingId),
-    );
-  }, [bookings, items, placeById, settings, transportBookingByLegId]);
+  }, [bookings, items, placeById, settings]);
 
   // Sorted by date, same as web — dateless legs sink after any dated legs.
   const sortedLegs = useMemo(
@@ -824,17 +736,11 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
         const collapsed = collapsedLegs.has(g.key);
         const isLeg = g.key.startsWith("leg-");
         const legId = isLeg ? Number(g.key.slice(4)) : null;
-        const legIndex = isLeg ? sortedLegs.findIndex((l) => l.id === legId) : -1;
-        const prevLeg = isLeg && legIndex > 0 ? sortedLegs[legIndex - 1] : null;
-        const transportBooking = legId != null ? transportBookingByLegId.get(legId) : undefined;
         const totalCount = g.entries.length;
         const visitedCount = g.entries.filter((e) => e.completed).length;
         const categoryGroups = isLeg ? groupByCategory(g.entries) : null;
         return (
         <View key={g.key} className="mb-4">
-          {prevLeg && transportBooking && (
-            <TransportDivider booking={transportBooking} fromCity={prevLeg.city} toCity={g.label} />
-          )}
           <View className="mb-2 flex-row items-center justify-between">
             <Pressable className="flex-1" onPress={() => toggleCollapsed(g.key)}>
               <Text className="text-lg font-bold text-text-primary dark:text-text-primary-dark">
