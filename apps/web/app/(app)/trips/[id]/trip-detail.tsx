@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -38,6 +38,22 @@ function daysBetween(a: Date, b: Date): number {
 interface Countdown {
   headline: string;
   subline: string;
+}
+
+const COLLAPSED_LISTS_KEY = "travel:collapsedListIds";
+
+function loadCollapsedListIds(): Set<number> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const stored = window.localStorage.getItem(COLLAPSED_LISTS_KEY);
+    return stored ? new Set(JSON.parse(stored) as number[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedListIds(ids: Set<number>): void {
+  window.localStorage.setItem(COLLAPSED_LISTS_KEY, JSON.stringify([...ids]));
 }
 
 // "Leg" is the internal/data-model term (matches the API and packages/types);
@@ -144,6 +160,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
   const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
   // A user-set backdrop is fixed — skip the Unsplash fetch entirely (via
   // `enabled`, not a conditional hook call) rather than pay for a lookup
   // whose result is about to be ignored.
@@ -162,6 +179,38 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const [editingTrip, setEditingTrip] = useState(false);
   const [hoveredPlaceId, setHoveredPlaceId] = useState<number | null>(null);
   const [activeLegId, setActiveLegId] = useState<number | null>(null);
+  // Starts empty (matches SSR) and is filled from localStorage after mount,
+  // rather than in the useState initializer, so the server- and first
+  // client-render always agree and React doesn't flag a hydration mismatch.
+  const [collapsedListIds, setCollapsedListIds] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    setCollapsedListIds(loadCollapsedListIds());
+  }, []);
+  const [listItemText, setListItemText] = useState<Record<number, string>>({});
+
+  function toggleListCollapsed(listId: number) {
+    setCollapsedListIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(listId)) next.delete(listId);
+      else next.add(listId);
+      saveCollapsedListIds(next);
+      return next;
+    });
+  }
+
+  async function setListItemDone(listId: number, itemId: number, done: boolean) {
+    await travelApi.lists.setItemDone(listId, itemId, done);
+    await queryClient.invalidateQueries({ queryKey: ["lists"] });
+  }
+
+  async function addListItem(e: React.FormEvent, listId: number) {
+    e.preventDefault();
+    const text = (listItemText[listId] ?? "").trim();
+    if (!text) return;
+    await travelApi.lists.addItem(listId, { text });
+    setListItemText((prev) => ({ ...prev, [listId]: "" }));
+    await queryClient.invalidateQueries({ queryKey: ["lists"] });
+  }
 
   async function saveName() {
     if (!name.trim() || name.trim() === trip?.name) return;
@@ -263,6 +312,8 @@ export function TripDetail({ tripId }: { tripId: number }) {
   if (ideaCount > 0) {
     nudges.push({ text: `${ideaCount} idea(s) not yet scheduled onto a day`, tone: "info" });
   }
+
+  const linkedLists = (allLists ?? []).filter((l) => l.tripId === tripId);
 
   return (
     <div className="space-y-6">
@@ -474,6 +525,72 @@ export function TripDetail({ tripId }: { tripId: number }) {
             <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Map</h2>
             <TripMap tripId={tripId} hoveredPlaceId={hoveredPlaceId} activeLegId={activeLegId} />
           </section>
+
+          {linkedLists.length > 0 && (
+            <section className="rounded border border-gridline bg-surface p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase text-text-muted">Lists</h2>
+                <Link href="/lists" className="text-xs text-category-transit">
+                  Manage in Lists →
+                </Link>
+              </div>
+              <div className="space-y-3">
+                {linkedLists.map((list) => {
+                  const collapsed = collapsedListIds.has(list.id);
+                  return (
+                    <div key={list.id}>
+                      <button
+                        onClick={() => toggleListCollapsed(list.id)}
+                        className="flex w-full items-center gap-2 text-left font-medium text-text-primary"
+                      >
+                        <span className="select-none text-text-muted">{collapsed ? "▸" : "▾"}</span>
+                        {list.name}
+                      </button>
+                      {!collapsed && (
+                        <ul className="mt-2 ml-5 space-y-2">
+                          {list.items.map((item) => (
+                            <li key={item.id} className="flex items-center gap-2 text-base text-text-primary">
+                              <input
+                                type="checkbox"
+                                checked={item.done}
+                                onChange={(e) => setListItemDone(list.id, item.id, e.target.checked)}
+                                className="h-5 w-5 accent-category-transit"
+                              />
+                              <span className={item.done ? "text-text-muted line-through" : undefined}>
+                                {item.text}
+                              </span>
+                            </li>
+                          ))}
+                          {list.items.length === 0 && <p className="text-sm text-text-muted">No items yet.</p>}
+                        </ul>
+                      )}
+                      {!collapsed && (
+                        <form
+                          onSubmit={(e) => addListItem(e, list.id)}
+                          className="mt-2 ml-5 flex gap-2"
+                        >
+                          <input
+                            className="flex-1 rounded border border-gridline bg-transparent p-1 text-xs text-text-primary"
+                            placeholder="Add an item…"
+                            value={listItemText[list.id] ?? ""}
+                            onChange={(e) =>
+                              setListItemText((prev) => ({ ...prev, [list.id]: e.target.value }))
+                            }
+                          />
+                          <button
+                            type="submit"
+                            className="rounded border border-gridline px-2 text-xs text-text-secondary"
+                          >
+                            Add
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>

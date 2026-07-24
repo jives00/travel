@@ -1,120 +1,30 @@
 import { useState } from "react";
-import { View, Text, Pressable, FlatList, Alert } from "react-native";
+import { View, Text, Pressable, RefreshControl, KeyboardAvoidingView, Platform } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import type { ListWithItems } from "@travel/types";
+import { NestableScrollContainer, NestableDraggableFlatList } from "react-native-draggable-flatlist";
 import { travelApi } from "../lib/api";
 import { usePullToRefresh } from "../lib/usePullToRefresh";
-import {
-  useCreateList,
-  useAddItem,
-  useSetItemDone,
-  useRemoveItem,
-  useCopyList,
-  useResetList,
-} from "../lib/offlineMutations/lists";
-import { Screen, Card, TextField, Button } from "../components/ui";
-
-function ListCard({ list }: { list: ListWithItems }) {
-  const [text, setText] = useState("");
-  const addItem = useAddItem();
-  const setDone = useSetItemDone();
-  const removeItem = useRemoveItem();
-  const copy = useCopyList();
-  const reset = useResetList();
-
-  return (
-    <Card className="mb-3">
-      <View className="mb-2 flex-row items-center justify-between">
-        <Text className="font-medium text-text-primary dark:text-text-primary-dark">{list.name}</Text>
-        <View className="flex-row gap-3">
-          {list.tripId ? <Text className="text-xs text-text-muted">Trip</Text> : null}
-          <Pressable
-            onPress={() =>
-              Alert.alert("Reset list", `Uncheck every item in "${list.name}"?`, [
-                { text: "Cancel", style: "cancel" },
-                { text: "Reset", style: "destructive", onPress: () => reset.mutate({ listId: list.id }) },
-              ])
-            }
-          >
-            <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">Reset</Text>
-          </Pressable>
-          <Pressable onPress={() => copy.mutate({ listId: list.id })}>
-            <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">Copy</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {list.items.length === 0 ? (
-        <Text className="mb-2 text-sm text-text-muted">No items yet.</Text>
-      ) : (
-        list.items.map((item) => (
-          <View key={item.id} className="flex-row items-center justify-between py-1">
-            <Pressable
-              className="flex-1 flex-row items-center gap-2"
-              onPress={() => setDone.mutate({ listId: list.id, itemId: item.id, done: !item.done })}
-            >
-              <Text className="text-base">{item.done ? "☑" : "☐"}</Text>
-              <Text
-                className={
-                  item.done
-                    ? "text-sm text-text-muted line-through"
-                    : "text-sm text-text-primary dark:text-text-primary-dark"
-                }
-              >
-                {item.text}
-              </Text>
-            </Pressable>
-            <Pressable onPress={() => removeItem.mutate({ listId: list.id, itemId: item.id })} className="px-2">
-              <Text className="text-text-muted">✕</Text>
-            </Pressable>
-          </View>
-        ))
-      )}
-
-      <View className="mt-2 flex-row gap-2">
-        <TextField
-          className="flex-1"
-          placeholder="Add an item…"
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={() => {
-            if (text.trim()) {
-              addItem.add(list.id, text.trim());
-              setText("");
-            }
-          }}
-          returnKeyType="done"
-        />
-        <Button
-          title="Add"
-          variant="secondary"
-          onPress={() => {
-            if (text.trim()) {
-              addItem.add(list.id, text.trim());
-              setText("");
-            }
-          }}
-        />
-      </View>
-    </Card>
-  );
-}
+import { useCreateList, useReorderLists } from "../lib/offlineMutations/lists";
+import { Screen, TextField, Button } from "../components/ui";
+import { ListCard } from "../components/ListCard";
+import { TripPickerSheet } from "../components/TripPickerSheet";
 
 export function ListsScreen() {
   const { data: lists } = useQuery(travelApi.queries.listsQuery());
   const [name, setName] = useState("");
+  const [newListTripId, setNewListTripId] = useState<number | null>(null);
+  const [pickingTrip, setPickingTrip] = useState(false);
   const createList = useCreateList();
+  const reorderLists = useReorderLists();
   const { refreshing, onRefresh } = usePullToRefresh();
 
   return (
     <Screen padded={false}>
-      <FlatList
-        data={lists ?? []}
-        keyExtractor={(l) => String(l.id)}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        contentContainerStyle={{ padding: 16 }}
-        ListHeaderComponent={
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <NestableScrollContainer
+          contentContainerStyle={{ padding: 16 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           <View className="mb-3 flex-row gap-2">
             <TextField
               className="flex-1"
@@ -122,20 +32,42 @@ export function ListsScreen() {
               value={name}
               onChangeText={setName}
             />
+            <Pressable
+              onPress={() => setPickingTrip(true)}
+              className="justify-center rounded border border-gridline px-3 dark:border-gridline-dark"
+            >
+              <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">
+                {newListTripId ? "Trip" : "Global"}
+              </Text>
+            </Pressable>
             <Button
               title="Create"
               onPress={() => {
                 if (name.trim()) {
-                  createList.create(name.trim());
+                  createList.create(name.trim(), newListTripId ?? undefined);
                   setName("");
+                  setNewListTripId(null);
                 }
               }}
             />
           </View>
-        }
-        renderItem={({ item }) => <ListCard list={item} />}
-        ListEmptyComponent={<Text className="text-text-muted">No lists yet — create one above.</Text>}
-      />
+
+          {(lists ?? []).length === 0 ? (
+            <Text className="text-text-muted">No lists yet — create one above.</Text>
+          ) : (
+            <NestableDraggableFlatList
+              data={lists ?? []}
+              keyExtractor={(l) => String(l.id)}
+              renderItem={({ item, drag, isActive }) => (
+                <ListCard list={item} onDragHandleLongPress={drag} isDragging={isActive} />
+              )}
+              onDragEnd={({ data }) => reorderLists.mutate({ listIds: data.map((l) => l.id) })}
+            />
+          )}
+        </NestableScrollContainer>
+      </KeyboardAvoidingView>
+
+      <TripPickerSheet visible={pickingTrip} onClose={() => setPickingTrip(false)} onSelect={setNewListTripId} />
     </Screen>
   );
 }

@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable, Image, Linking } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import type { Booking, BookingType, ItineraryItem, Leg, Place, PlaceTag } from "@travel/types";
@@ -573,6 +574,28 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
   const [collapsedLegs, setCollapsedLegs] = useState<Set<string>>(
     () => new Set([...legs.map((leg) => `leg-${leg.id}`), "pre", "post", "unscheduled"]),
   );
+  // Remembered per-trip, same as web's itinerary section (and mobile's own
+  // Lists sheet) — a collapse choice made once shouldn't reset the next time
+  // this trip is opened. `loaded` gates the save effect so the persisted value
+  // isn't clobbered by the all-collapsed default before it's had a chance to load.
+  const collapsedLegsStorageKey = `travel:itinerary:collapsedSections:${tripId}`;
+  const [collapsedLegsLoaded, setCollapsedLegsLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setCollapsedLegsLoaded(false);
+    void AsyncStorage.getItem(collapsedLegsStorageKey).then((raw) => {
+      if (cancelled) return;
+      if (raw) setCollapsedLegs(new Set(JSON.parse(raw) as string[]));
+      setCollapsedLegsLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [collapsedLegsStorageKey]);
+  useEffect(() => {
+    if (!collapsedLegsLoaded) return;
+    void AsyncStorage.setItem(collapsedLegsStorageKey, JSON.stringify([...collapsedLegs]));
+  }, [collapsedLegs, collapsedLegsLoaded, collapsedLegsStorageKey]);
 
   function toggleCollapsed(key: string) {
     setCollapsedLegs((prev) => {

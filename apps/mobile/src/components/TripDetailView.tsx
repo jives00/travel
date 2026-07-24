@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, Image, Pressable, RefreshControl, ScrollView } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -21,6 +22,7 @@ import { TripWeather } from "./TripWeather";
 import { TripItinerary } from "./TripItinerary";
 import { TripMap } from "./TripMap";
 import { SyncBanner } from "./SyncBanner";
+import { ListCard } from "./ListCard";
 
 /** The shared trip-detail body — rendered by both the Trips stack's detail screen
  * and the Home tab (Home just resolves the active/primary trip and renders this).
@@ -30,10 +32,13 @@ import { SyncBanner } from "./SyncBanner";
 // minimal param-list shape is all this navigate call needs.
 type BudgetNav = NativeStackNavigationProp<{ TripBudget: { tripId: number } }>;
 
+const COLLAPSED_LISTS_KEY = "travel:collapsedListIds";
+
 export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchived?: () => void }) {
   const navigation = useNavigation<BudgetNav>();
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
   const { data: hero } = useQuery({
     ...travelApi.queries.heroImageQuery(tripId),
     enabled: !trip?.heroImageUrl,
@@ -53,6 +58,23 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const [cityName, setCityName] = useState("");
   const [cityStart, setCityStart] = useState("");
   const [cityEnd, setCityEnd] = useState("");
+  const [showingLists, setShowingLists] = useState(false);
+  const [collapsedListIds, setCollapsedListIds] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    void AsyncStorage.getItem(COLLAPSED_LISTS_KEY).then((stored) => {
+      if (stored) setCollapsedListIds(new Set(JSON.parse(stored) as number[]));
+    });
+  }, []);
+
+  function toggleListCollapsed(listId: number) {
+    setCollapsedListIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(listId)) next.delete(listId);
+      else next.add(listId);
+      void AsyncStorage.setItem(COLLAPSED_LISTS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }
 
   const insets = useSafeAreaInsets();
   const { refreshing, onRefresh } = usePullToRefresh();
@@ -75,6 +97,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const nudges: string[] = [];
   if (trip.status !== "dreaming" && legsNoDates.length > 0) nudges.push(`${legsNoDates.length} city(ies) still need dates`);
   if (sortedLegs.length > 0 && legsNoLodging.length > 0) nudges.push(`${legsNoLodging.length} city(ies) have no lodging set`);
+  const linkedLists = (allLists ?? []).filter((l) => l.tripId === tripId);
 
   function saveName() {
     const v = nameDraft.trim();
@@ -143,6 +166,9 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
             title="Trip Budget"
             onPress={() => navigation.navigate("TripBudget", { tripId })}
           />
+          {linkedLists.length > 0 && (
+            <Button className="flex-1" variant="secondary" title="Lists" onPress={() => setShowingLists(true)} />
+          )}
         </View>
 
         <Text className="mb-2 mt-4 text-xs font-semibold uppercase text-text-muted">Map</Text>
@@ -264,6 +290,21 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
             setAddingCity(false);
           }}
         />
+      </Sheet>
+
+      {/* Linked lists — read/edit-in-place, but not reorderable here since the
+          Sheet already owns the scroll view (see ListCard's `reorderable` note). */}
+      <Sheet visible={showingLists} onClose={() => setShowingLists(false)}>
+        <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">Lists</Text>
+        {linkedLists.map((list) => (
+          <ListCard
+            key={list.id}
+            list={list}
+            reorderable={false}
+            collapsed={collapsedListIds.has(list.id)}
+            onToggleCollapsed={() => toggleListCollapsed(list.id)}
+          />
+        ))}
       </Sheet>
       </ScrollView>
     </View>

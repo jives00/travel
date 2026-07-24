@@ -3,6 +3,7 @@ import {
   AddListItemBody,
   CreateListBody,
   ReorderListItemsBody,
+  ReorderListsBody,
   UpdateListBody,
   UpdateListItemBody,
 } from "@travel/types";
@@ -67,12 +68,20 @@ export async function listsRoutes(app: FastifyInstance): Promise<void> {
   app.patch<{ Params: { id: string } }>("/:id", auth, async (request, reply) => {
     const parsed = UpdateListBody.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
-    await getPool().query("UPDATE custom_lists SET name = ?, slug = ? WHERE id = ? AND user_id = ?", [
-      parsed.data.name,
-      slugify(parsed.data.name),
-      request.params.id,
-      userId(request),
-    ]);
+    const body = parsed.data;
+
+    const fields: string[] = [];
+    const params: unknown[] = [];
+    if (body.name !== undefined) {
+      fields.push("name = ?", "slug = ?");
+      params.push(body.name, slugify(body.name));
+    }
+    if (body.tripId !== undefined) {
+      fields.push("trip_id = ?");
+      params.push(body.tripId);
+    }
+    params.push(request.params.id, userId(request));
+    await getPool().query(`UPDATE custom_lists SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`, params);
     return reply.code(204).send();
   });
 
@@ -115,10 +124,11 @@ export async function listsRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { id: string } }>("/:id/items", auth, async (request, reply) => {
     const parsed = AddListItemBody.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
-    await getPool().query("INSERT INTO list_items (list_id, text) VALUES (?, ?)", [
-      request.params.id,
-      parsed.data.text,
-    ]);
+    await getPool().query(
+      `INSERT INTO list_items (list_id, text, sort_order)
+       SELECT ?, ?, COALESCE(MAX(sort_order), -1) + 1 FROM list_items WHERE list_id = ?`,
+      [request.params.id, parsed.data.text, request.params.id],
+    );
     return reply.code(204).send();
   });
 
@@ -128,14 +138,38 @@ export async function listsRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const parsed = UpdateListItemBody.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
-      await getPool().query("UPDATE list_items SET done = ? WHERE id = ? AND list_id = ?", [
-        parsed.data.done,
-        request.params.itemId,
-        request.params.id,
-      ]);
+      const body = parsed.data;
+
+      const fields: string[] = [];
+      const params: unknown[] = [];
+      if (body.done !== undefined) {
+        fields.push("done = ?");
+        params.push(body.done);
+      }
+      if (body.text !== undefined) {
+        fields.push("text = ?");
+        params.push(body.text);
+      }
+      params.push(request.params.itemId, request.params.id);
+      await getPool().query(`UPDATE list_items SET ${fields.join(", ")} WHERE id = ? AND list_id = ?`, params);
       return reply.code(204).send();
     },
   );
+
+  app.post("/reorder", auth, async (request, reply) => {
+    const parsed = ReorderListsBody.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
+    await Promise.all(
+      parsed.data.listIds.map((listId, index) =>
+        getPool().query("UPDATE custom_lists SET sort_order = ? WHERE id = ? AND user_id = ?", [
+          index,
+          listId,
+          userId(request),
+        ]),
+      ),
+    );
+    return reply.code(204).send();
+  });
 
   app.post<{ Params: { id: string } }>("/:id/items/reorder", auth, async (request, reply) => {
     const parsed = ReorderListItemsBody.safeParse(request.body);

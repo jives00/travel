@@ -25,6 +25,9 @@ export const LIST_RENAME = ["lists", "rename"] as const;
 export const LIST_COPY = ["lists", "copy"] as const;
 export const LIST_RESET = ["lists", "reset"] as const;
 export const LIST_REORDER = ["lists", "reorderItems"] as const;
+export const LIST_REORDER_LISTS = ["lists", "reorderLists"] as const;
+export const LIST_UPDATE_ITEM_TEXT = ["lists", "updateItemText"] as const;
+export const LIST_SET_TRIP = ["lists", "setTrip"] as const;
 
 function patchList(listId: number, fn: (l: ListWithItems) => ListWithItems): ListWithItems[] | undefined {
   const prev = queryClient.getQueryData<ListWithItems[]>(KEY);
@@ -73,6 +76,21 @@ export function registerListMutations(): void {
     mutationKey: LIST_REORDER,
     resolveRefs: (v) => ({ listId: resolveId(v.listId), itemIds: v.itemIds.map(resolveId) }),
     mutationFn: ({ listId, itemIds }) => travelApi.lists.reorderItems(listId, itemIds),
+  });
+  registerOfflineMutation<{ listIds: number[] }, void>({
+    mutationKey: LIST_REORDER_LISTS,
+    resolveRefs: (v) => ({ listIds: v.listIds.map(resolveId) }),
+    mutationFn: ({ listIds }) => travelApi.lists.reorderLists(listIds),
+  });
+  registerOfflineMutation<{ listId: number; itemId: number; text: string }, void>({
+    mutationKey: LIST_UPDATE_ITEM_TEXT,
+    resolveRefs: (v) => ({ ...v, listId: resolveId(v.listId), itemId: resolveId(v.itemId) }),
+    mutationFn: ({ listId, itemId, text }) => travelApi.lists.updateItemText(listId, itemId, text),
+  });
+  registerOfflineMutation<{ listId: number; tripId: number | null }, void>({
+    mutationKey: LIST_SET_TRIP,
+    resolveRefs: (v) => ({ ...v, listId: resolveId(v.listId) }),
+    mutationFn: ({ listId, tripId }) => travelApi.lists.setTrip(listId, tripId),
   });
 }
 
@@ -138,6 +156,62 @@ export function useRenameList() {
   return useMutation<void, Error, { listId: number; name: string }>({
     mutationKey: LIST_RENAME,
     onMutate: ({ listId, name }) => ({ prev: patchList(listId, (l) => ({ ...l, name })) }),
+    onError: (_e, _v, ctx) => restore(ctx),
+    onSettled: invalidate,
+  });
+}
+
+export function useUpdateItemText() {
+  return useMutation<void, Error, { listId: number; itemId: number; text: string }>({
+    mutationKey: LIST_UPDATE_ITEM_TEXT,
+    onMutate: ({ listId, itemId, text }) => {
+      const prev = patchList(listId, (l) => ({
+        ...l,
+        items: l.items.map((it) => (it.id === itemId ? { ...it, text } : it)),
+      }));
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => restore(ctx),
+    onSettled: invalidate,
+  });
+}
+
+export function useSetTrip() {
+  return useMutation<void, Error, { listId: number; tripId: number | null }>({
+    mutationKey: LIST_SET_TRIP,
+    onMutate: ({ listId, tripId }) => ({ prev: patchList(listId, (l) => ({ ...l, tripId })) }),
+    onError: (_e, _v, ctx) => restore(ctx),
+    onSettled: invalidate,
+  });
+}
+
+export function useReorderLists() {
+  return useMutation<void, Error, { listIds: number[] }>({
+    mutationKey: LIST_REORDER_LISTS,
+    onMutate: ({ listIds }) => {
+      const prev = queryClient.getQueryData<ListWithItems[]>(KEY);
+      queryClient.setQueryData<ListWithItems[]>(KEY, (old) => {
+        if (!old) return old;
+        const byId = new Map(old.map((l) => [l.id, l]));
+        return listIds.map((id) => byId.get(id)).filter((l): l is ListWithItems => !!l);
+      });
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => restore(ctx),
+    onSettled: invalidate,
+  });
+}
+
+export function useReorderItems() {
+  return useMutation<void, Error, { listId: number; itemIds: number[] }>({
+    mutationKey: LIST_REORDER,
+    onMutate: ({ listId, itemIds }) => {
+      const prev = patchList(listId, (l) => {
+        const byId = new Map(l.items.map((i) => [i.id, i]));
+        return { ...l, items: itemIds.map((id) => byId.get(id)).filter((i): i is ListItem => !!i) };
+      });
+      return { prev };
+    },
     onError: (_e, _v, ctx) => restore(ctx),
     onSettled: invalidate,
   });

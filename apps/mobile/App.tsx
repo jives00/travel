@@ -3,6 +3,7 @@ import { AppState, AppStateStatus } from "react-native";
 import { onlineManager } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { colorScheme } from "nativewind";
@@ -76,13 +77,15 @@ export default function App() {
         if (onlineManager.isOnline()) void resumeQueuedMutations();
       }}
     >
-      <SafeAreaProvider>
-        <StatusBar style="light" />
-        <UpdateBanner />
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
-      </SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <StatusBar style="light" />
+          <UpdateBanner />
+          <AuthProvider>
+            <RootNavigator />
+          </AuthProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
     </PersistQueryClientProvider>
   );
 }

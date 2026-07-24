@@ -9,15 +9,20 @@ export function createListsEndpoints(request: RequestFn) {
     create: (body: CreateListBody) => request<ListWithItems>("/api/lists", { method: "POST", body }),
     rename: (listId: number, name: string) =>
       request<void>(`/api/lists/${listId}`, { method: "PATCH", body: { name } }),
+    setTrip: (listId: number, tripId: number | null) =>
+      request<void>(`/api/lists/${listId}`, { method: "PATCH", body: { tripId } }),
     copy: (listId: number) => request<ListWithItems>(`/api/lists/${listId}/copy`, { method: "POST" }),
     reset: (listId: number) => request<void>(`/api/lists/${listId}/reset`, { method: "POST" }),
     addItem: (listId: number, body: AddListItemBody) =>
       request<void>(`/api/lists/${listId}/items`, { method: "POST", body }),
     setItemDone: (listId: number, itemId: number, done: boolean) =>
       request<void>(`/api/lists/${listId}/items/${itemId}`, { method: "PATCH", body: { done } }),
+    updateItemText: (listId: number, itemId: number, text: string) =>
+      request<void>(`/api/lists/${listId}/items/${itemId}`, { method: "PATCH", body: { text } }),
     removeItem: (listId: number, itemId: number) =>
       request<void>(`/api/lists/${listId}/items/${itemId}`, { method: "DELETE" }),
     reorderItems: (listId: number, itemIds: number[]) =>
       request<void>(`/api/lists/${listId}/items/reorder`, { method: "POST", body: { itemIds } }),
+    reorderLists: (listIds: number[]) => request<void>("/api/lists/reorder", { method: "POST", body: { listIds } }),
   };
 }
