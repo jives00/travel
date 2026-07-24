@@ -97,24 +97,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
           <View className="h-6 bg-black/45" />
           <View className="h-8 bg-black/55" />
         </View>
-        <View className="absolute inset-0 justify-between p-4">
-          <View className="flex-row justify-end gap-2">
-            <Pressable
-              onPress={() => {
-                setNameDraft(trip.name);
-                setEditing(true);
-              }}
-              className="rounded-lg bg-white/90 px-4 py-2"
-            >
-              <Text className="text-sm font-semibold text-text-primary">Edit Trip</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => navigation.navigate("TripBudget", { tripId })}
-              className="rounded-lg bg-category-transit px-4 py-2"
-            >
-              <Text className="text-sm font-semibold text-white">Trip Budget</Text>
-            </Pressable>
-          </View>
+        <View className="absolute inset-0 justify-end p-4">
           <View>
             <Text className="text-2xl font-bold text-white">
               {trip.isPrimary ? "★ " : ""}
@@ -143,6 +126,24 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
 
         <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Itinerary</Text>
         <TripItinerary tripId={tripId} legs={sortedLegs} />
+
+        <View className="mt-2 flex-row gap-2">
+          <Button
+            className="flex-1"
+            variant="secondary"
+            title="Edit Trip"
+            onPress={() => {
+              setNameDraft(trip.name);
+              setEditing(true);
+            }}
+          />
+          <Button
+            className="flex-1"
+            variant="secondary"
+            title="Trip Budget"
+            onPress={() => navigation.navigate("TripBudget", { tripId })}
+          />
+        </View>
 
         <Text className="mb-2 mt-4 text-xs font-semibold uppercase text-text-muted">Map</Text>
         <TripMap tripId={tripId} />
