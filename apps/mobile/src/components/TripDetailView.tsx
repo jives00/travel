@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { View, Text, Image, Pressable, RefreshControl, ScrollView } from "react-native";
+import { View, Text, Image, Pressable, RefreshControl, ScrollView, Share } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import type { Booking, Trip } from "@travel/types";
-import { computeCountdown } from "@travel/core";
+import { computeCountdown, buildShareItineraryText } from "@travel/core";
 import { travelApi } from "../lib/api";
 import { usePullToRefresh } from "../lib/usePullToRefresh";
 import {
@@ -39,6 +39,10 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
+  // Both already cached by the embedded itinerary/map sections — read here so
+  // the Share button can build its text without extra fetches.
+  const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
+  const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
   const { data: hero } = useQuery({
     ...travelApi.queries.heroImageQuery(tripId),
     enabled: !trip?.heroImageUrl,
@@ -99,6 +103,28 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   if (sortedLegs.length > 0 && legsNoLodging.length > 0) nudges.push(`${legsNoLodging.length} city(ies) have no lodging set`);
   const linkedLists = (allLists ?? []).filter((l) => l.tripId === tripId);
 
+  /** Hands the plain-text itinerary (places by city — no dates, logistics
+   * bookings, or private items) to the OS share sheet, which is the mobile
+   * equivalent of web's copy-to-clipboard modal and gets "Copy" for free. */
+  // Read out here, not inside the closure — TS drops the `if (!trip) return`
+  // narrowing across a function boundary.
+  const tripName = trip.name;
+  async function shareItinerary() {
+    const message = buildShareItineraryText({
+      tripName,
+      legs: sortedLegs,
+      items: itineraryItems ?? [],
+      places: tripPlaces ?? [],
+      bookings: bookings ?? [],
+    });
+    try {
+      await Share.share({ message });
+    } catch {
+      // User dismissed the sheet, or no share target is available — nothing to
+      // recover from, and an error toast here would just be noise.
+    }
+  }
+
   function saveName() {
     const v = nameDraft.trim();
     if (v && v !== trip!.name) updateTrip.mutate({ id: tripId, body: { name: v } });
@@ -150,9 +176,12 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
         <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Itinerary</Text>
         <TripItinerary tripId={tripId} legs={sortedLegs} />
 
-        <View className="mt-2 flex-row gap-2">
+        {/* Wraps 2-up rather than sharing one row: with Share added there are up
+            to four buttons, and at flex-1 on a narrow phone "Edit Trip" and
+            "Trip Budget" both wrap to two lines. */}
+        <View className="mt-2 flex-row flex-wrap gap-2">
           <Button
-            className="flex-1"
+            className="w-[48%]"
             variant="secondary"
             title="Edit Trip"
             onPress={() => {
@@ -160,14 +189,15 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
               setEditing(true);
             }}
           />
+          <Button className="w-[48%]" variant="secondary" title="Share" onPress={shareItinerary} />
           <Button
-            className="flex-1"
+            className="w-[48%]"
             variant="secondary"
             title="Trip Budget"
             onPress={() => navigation.navigate("TripBudget", { tripId })}
           />
           {linkedLists.length > 0 && (
-            <Button className="flex-1" variant="secondary" title="Lists" onPress={() => setShowingLists(true)} />
+            <Button className="w-[48%]" variant="secondary" title="Lists" onPress={() => setShowingLists(true)} />
           )}
         </View>
 

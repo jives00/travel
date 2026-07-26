@@ -7,3 +7,4 @@ export * from "./tripDates";
 export * from "./budget";
 export * from "./fx";
 export * from "./format";
+export * from "./shareItinerary";

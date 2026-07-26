@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, Leg, Trip } from "@travel/types";
+import { buildShareItineraryText } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { Modal, TripItinerary } from "./trip-itinerary";
 import { TripWeather } from "./trip-weather";
@@ -154,6 +155,44 @@ function HeroImage({
   );
 }
 
+/** Read-only plain text of the itinerary, grouped by city, for copy/pasting to
+ * someone — no dates, logistics bookings, or private items (see
+ * buildShareItineraryText in @travel/core). */
+function ShareModal({ text, onClose }: { text: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable (non-secure context, permission denied) — the
+      // text is right there in the <pre>, so select-and-copy still works.
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} wide>
+      <h2 className="mb-1 text-lg font-semibold text-text-primary">Share itinerary</h2>
+      <p className="mb-3 text-sm text-text-secondary">
+        Places by city — no dates, travel bookings, or private items.
+      </p>
+      <pre className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded border border-gridline bg-surface p-3 font-sans text-sm text-text-primary">
+        {text}
+      </pre>
+      <div className="mt-3 flex items-center gap-2">
+        <button onClick={copy} className="rounded bg-category-transit px-4 py-2 text-sm font-medium text-white">
+          {copied ? "Copied" : "Copy"}
+        </button>
+        <button onClick={onClose} className="text-sm text-text-secondary">
+          Close
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function TripDetail({ tripId }: { tripId: number }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -161,6 +200,9 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
+  // Already cached by the itinerary section below — this just reads the same
+  // entry so the hero's Share button can build its text.
+  const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
   // A user-set backdrop is fixed — skip the Unsplash fetch entirely (via
   // `enabled`, not a conditional hook call) rather than pay for a lookup
   // whose result is about to be ignored.
@@ -177,6 +219,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const [backdropUrl, setBackdropUrl] = useState("");
   const [savingBackdrop, setSavingBackdrop] = useState(false);
   const [editingTrip, setEditingTrip] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [hoveredPlaceId, setHoveredPlaceId] = useState<number | null>(null);
   const [activeLegId, setActiveLegId] = useState<number | null>(null);
   // Starts empty (matches SSR) and is filled from localStorage after mount,
@@ -337,6 +380,12 @@ export function TripDetail({ tripId }: { tripId: number }) {
               >
                 Edit Trip
               </button>
+              <button
+                onClick={() => setSharing(true)}
+                className="rounded-lg bg-white/90 px-4 py-2 text-sm font-semibold text-text-primary shadow hover:bg-white"
+              >
+                Share
+              </button>
               <Link
                 href={`/trips/${tripId}/budget`}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-category-transit px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90"
@@ -380,6 +429,19 @@ export function TripDetail({ tripId }: { tripId: number }) {
           </div>
         </div>
       </div>
+
+      {sharing && (
+        <ShareModal
+          text={buildShareItineraryText({
+            tripName: trip.name,
+            legs: sortedLegs,
+            items: itineraryItems ?? [],
+            places: tripPlaces ?? [],
+            bookings: bookings ?? [],
+          })}
+          onClose={() => setSharing(false)}
+        />
+      )}
 
       {editingTrip && (
         <Modal
