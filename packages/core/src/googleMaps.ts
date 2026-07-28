@@ -11,10 +11,6 @@ export function googleMapsUrl(opts: {
   lng: number;
   googlePlaceId?: string | null;
 }): string {
-  // URLSearchParams encodes values itself — don't encodeURIComponent() first,
-  // or the comma in "lat,lng" gets double-encoded (%2C -> %252C), which is
-  // what made Google Maps report it couldn't find the (garbled) query.
-  //
   // Prefer searching by name+address text over raw "lat,lng" whenever we
   // have it (e.g. hotels, which have no googlePlaceId) — a coordinate query
   // just drops a generic pin at that point instead of resolving to the
@@ -24,9 +20,15 @@ export function googleMapsUrl(opts: {
     : opts.address
       ? `${opts.name}, ${opts.address}`
       : `${opts.lat},${opts.lng}`;
-  const params = new URLSearchParams({ api: "1", query });
-  if (opts.googlePlaceId) params.set("query_place_id", opts.googlePlaceId);
-  return `https://www.google.com/maps/search/?${params.toString()}`;
+  // Hand-rolled rather than URLSearchParams: this package compiles with
+  // `lib: ["ES2022"]` and no DOM/Node types, so that global isn't available
+  // here (it only resolved by accident via a hoisted @types/node locally, and
+  // broke the Docker build). Encode each value exactly once — double-encoding
+  // the comma in "lat,lng" (%2C -> %252C) is what once made Google Maps report
+  // it couldn't find the garbled query.
+  const params = [`api=1`, `query=${encodeURIComponent(query)}`];
+  if (opts.googlePlaceId) params.push(`query_place_id=${encodeURIComponent(opts.googlePlaceId)}`);
+  return `https://www.google.com/maps/search/?${params.join("&")}`;
 }
 
 /** A library place always has coordinates (both columns are NOT NULL), so this
