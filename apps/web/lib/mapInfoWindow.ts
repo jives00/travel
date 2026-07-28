@@ -2,34 +2,14 @@
 // trip page's sidebar map) — builds the InfoWindow content shown on marker
 // click, styled to match what Google Maps itself shows for a place: name,
 // address, and a "View on Google Maps" deep link.
+//
+// The URL builder itself lives in @travel/core, since mobile links out to Maps
+// from its detail sheets too.
+
+import { googleMapsUrl } from "@travel/core";
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-
-export function googleMapsUrl(opts: {
-  name: string;
-  address?: string | null;
-  lat: number;
-  lng: number;
-  googlePlaceId?: string | null;
-}): string {
-  // URLSearchParams encodes values itself — don't encodeURIComponent() first,
-  // or the comma in "lat,lng" gets double-encoded (%2C -> %252C), which is
-  // what made Google Maps report it couldn't find the (garbled) query.
-  //
-  // Prefer searching by name+address text over raw "lat,lng" whenever we
-  // have it (e.g. hotels, which have no googlePlaceId) — a coordinate query
-  // just drops a generic pin at that point instead of resolving to the
-  // actual business, even when it's the exact spot the business sits at.
-  const query = opts.googlePlaceId
-    ? opts.name
-    : opts.address
-      ? `${opts.name}, ${opts.address}`
-      : `${opts.lat},${opts.lng}`;
-  const params = new URLSearchParams({ api: "1", query });
-  if (opts.googlePlaceId) params.set("query_place_id", opts.googlePlaceId);
-  return `https://www.google.com/maps/search/?${params.toString()}`;
 }
 
 export function infoWindowHtml(opts: {

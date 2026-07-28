@@ -16,9 +16,12 @@ function sessionToken(): string {
 export function AddressSearch({
   address,
   onPicked,
+  onCleared,
 }: {
   address: string;
   onPicked: (result: { address: string; lat: number; lng: number }) => void;
+  /** Omit on create-only forms, where there's no saved address to remove yet. */
+  onCleared?: () => void;
 }) {
   const [input, setInput] = useState("");
   const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
@@ -79,7 +82,18 @@ export function AddressSearch({
             <Text className="text-text-primary dark:text-text-primary-dark">{s.text}</Text>
           </Pressable>
         ))}
-      {address ? <Text className="mt-1 text-xs text-text-muted">{address}</Text> : null}
+      {address ? (
+        <View className="mt-1 flex-row items-start gap-2">
+          <Text className="flex-1 text-xs text-text-muted">{address}</Text>
+          {/* The search only ever sets an address, so without this a wrong one
+              could be overwritten but never removed. */}
+          {onCleared && (
+            <Pressable onPress={onCleared} hitSlop={8}>
+              <Text className="text-xs text-text-secondary underline dark:text-text-secondary-dark">Clear</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : null}
     </View>
   );
 }

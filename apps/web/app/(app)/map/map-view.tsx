@@ -5,9 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MAP_OVERVIEW_COLORS, MAP_OVERVIEW_GROUPS, DARK_MAP_STYLE, type MapOverviewGroup } from "@travel/ui-tokens";
 import type { AutocompleteSuggestion } from "@travel/api-client";
 import type { WishlistLocationType, WishlistStatus } from "@travel/types";
+import { googleMapsUrl } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
-import { googleMapsUrl } from "@/lib/mapInfoWindow";
 import { sessionToken as makeSessionToken } from "@/lib/sessionToken";
 import { useTheme } from "@/lib/theme-context";
 

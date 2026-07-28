@@ -28,7 +28,7 @@ import { Modal } from "../trip-itinerary";
 import {
   BookingFields,
   type BookingFormState,
-  formToBody as bookingFormToBody,
+  formToUpdateBody as bookingFormToUpdateBody,
   bookingToForm,
 } from "@/components/booking-fields";
 
@@ -386,7 +386,7 @@ function BookingEditModal({
   async function save() {
     setSaving(true);
     try {
-      await travelApi.bookings.update(tripId, booking.id, bookingFormToBody(form));
+      await travelApi.bookings.update(tripId, booking.id, bookingFormToUpdateBody(form));
       onSaved();
     } finally {
       setSaving(false);

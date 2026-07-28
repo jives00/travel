@@ -49,5 +49,27 @@ export const CreateBookingBody = z.object({
 });
 export type CreateBookingBody = z.infer<typeof CreateBookingBody>;
 
-export const UpdateBookingBody = CreateBookingBody.partial();
+// Not `CreateBookingBody.partial()`: on create, an omitted field and a cleared
+// field mean the same thing, but on update they don't. The PATCH route only
+// writes keys that are present (`!== undefined`), so a nullable field has to be
+// able to carry an explicit `null` — otherwise clearing one (unlinking a place,
+// blanking a wrong address) is indistinguishable from leaving it alone, and the
+// old value sticks. `type`/`title` stay non-nullable: both columns are NOT NULL.
+export const UpdateBookingBody = z.object({
+  legId: z.number().int().nullish(),
+  type: BookingType.optional(),
+  title: z.string().min(1).optional(),
+  confirmationCode: z.string().nullish(),
+  flightNumber: z.string().nullish(),
+  startAt: z.string().nullish(),
+  endAt: z.string().nullish(),
+  price: z.number().nullish(),
+  currency: z.string().length(3).nullish(),
+  placeId: z.number().int().nullish(),
+  address: z.string().nullish(),
+  lat: z.number().nullish(),
+  lng: z.number().nullish(),
+  notes: z.string().max(2000).nullish(),
+  completed: z.boolean().optional(),
+});
 export type UpdateBookingBody = z.infer<typeof UpdateBookingBody>;

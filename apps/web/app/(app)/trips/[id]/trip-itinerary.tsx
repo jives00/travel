@@ -12,6 +12,8 @@ import {
   todayDateString,
   itineraryCategoryLabel,
   compareItineraryCategories,
+  placeMapsUrl,
+  bookingMapsUrl,
 } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
@@ -21,6 +23,7 @@ import {
   type BookingFormState,
   EMPTY_FORM as EMPTY_BOOKING_FORM,
   formToBody as bookingFormToBody,
+  formToUpdateBody as bookingFormToUpdateBody,
   bookingToForm,
 } from "@/components/booking-fields";
 import { AutocompleteSearch, type AutocompleteSearchHandle, type AutocompleteSearchState } from "@/components/autocomplete-search";
@@ -537,7 +540,7 @@ function EditItemModal({
     setSaving(true);
     try {
       if (entry.kind === "booking" && entry.booking) {
-        await travelApi.bookings.update(tripId, entry.booking.id, bookingFormToBody(bookingForm));
+        await travelApi.bookings.update(tripId, entry.booking.id, bookingFormToUpdateBody(bookingForm));
         await queryClient.invalidateQueries({ queryKey: ["bookings", tripId] });
       } else if (entry.item) {
         await travelApi.itinerary.move(tripId, entry.item.id, {
@@ -893,6 +896,14 @@ function PlaceDetailPanel({
               Visit website ↗
             </a>
           )}
+          <a
+            href={placeMapsUrl(place)}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-category-transit hover:underline"
+          >
+            Open in Google Maps ↗
+          </a>
           {place.googlePlaceId && (
             <button
               onClick={refresh}
@@ -1104,6 +1115,8 @@ function BookingDetailPanel({
   const [placeIdSel, setPlaceIdSel] = useState(booking.placeId != null ? String(booking.placeId) : "");
   const [savingPlace, setSavingPlace] = useState(false);
 
+  const mapsUrl = bookingMapsUrl(booking, place);
+
   const [legId, setLegId] = useState(booking.legId != null ? String(booking.legId) : "");
   const [startDate, setStartDate] = useState(booking.startAt?.slice(0, 10) ?? "");
   const [startTime, setStartTime] = useState(() => {
@@ -1117,6 +1130,10 @@ function BookingDetailPanel({
   });
   const [savingSchedule, setSavingSchedule] = useState(false);
 
+  // Every caller below clears with `null`, never `undefined`: an `undefined`
+  // value is dropped by JSON.stringify, so the field would either silently keep
+  // its old value or — if it was the only field in the patch — produce an empty
+  // body the route rejects outright. See UpdateBookingBody in @travel/types.
   async function patch(body: Parameters<typeof travelApi.bookings.update>[2]) {
     await travelApi.bookings.update(tripId, booking.id, body);
     await queryClient.invalidateQueries({ queryKey: ["bookings", tripId] });
@@ -1140,7 +1157,7 @@ function BookingDetailPanel({
     if (notes === (booking.notes ?? "")) return;
     setSavingNotes(true);
     try {
-      await patch({ notes: notes.trim() });
+      await patch({ notes: notes.trim() || null });
     } finally {
       setSavingNotes(false);
     }
@@ -1150,7 +1167,7 @@ function BookingDetailPanel({
     if (confirmationCode === (booking.confirmationCode ?? "")) return;
     setSavingConfirmation(true);
     try {
-      await patch({ confirmationCode: confirmationCode.trim() });
+      await patch({ confirmationCode: confirmationCode.trim() || null });
     } finally {
       setSavingConfirmation(false);
     }
@@ -1160,18 +1177,18 @@ function BookingDetailPanel({
     if (flightNumber === (booking.flightNumber ?? "")) return;
     setSavingFlightNumber(true);
     try {
-      await patch({ flightNumber: flightNumber.trim() });
+      await patch({ flightNumber: flightNumber.trim() || null });
     } finally {
       setSavingFlightNumber(false);
     }
   }
 
   async function savePrice() {
-    const numericPrice = price ? Number(price) : undefined;
-    if (numericPrice === (booking.price ?? undefined) && currency === (booking.currency ?? "")) return;
+    const numericPrice = price ? Number(price) : null;
+    if (numericPrice === booking.price && currency === (booking.currency ?? "")) return;
     setSavingPrice(true);
     try {
-      await patch({ price: numericPrice, currency: currency.trim() || undefined });
+      await patch({ price: numericPrice, currency: currency.trim() || null });
     } finally {
       setSavingPrice(false);
     }
@@ -1181,7 +1198,7 @@ function BookingDetailPanel({
     setPlaceIdSel(value);
     setSavingPlace(true);
     try {
-      await patch({ placeId: value ? Number(value) : undefined });
+      await patch({ placeId: value ? Number(value) : null });
     } finally {
       setSavingPlace(false);
     }
@@ -1191,9 +1208,9 @@ function BookingDetailPanel({
     setSavingSchedule(true);
     try {
       await patch({
-        legId: legId ? Number(legId) : undefined,
-        startAt: startDate ? `${startDate}T${startTime || "00:00"}:00` : undefined,
-        endAt: endDate ? `${endDate}T${endTime || "00:00"}:00` : undefined,
+        legId: legId ? Number(legId) : null,
+        startAt: startDate ? `${startDate}T${startTime || "00:00"}:00` : null,
+        endAt: endDate ? `${endDate}T${endTime || "00:00"}:00` : null,
       });
     } finally {
       setSavingSchedule(false);
@@ -1254,6 +1271,18 @@ function BookingDetailPanel({
               <p className="text-sm text-text-secondary">{booking.address || place?.address}</p>
             )}
           </button>
+          {/* Null for a booking with neither its own coordinates nor a linked
+              place — a flight with no address has nothing to point at. */}
+          {mapsUrl && (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-block text-sm text-category-transit hover:underline"
+            >
+              Open in Google Maps ↗
+            </a>
+          )}
         </div>
 
         <div>

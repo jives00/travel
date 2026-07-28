@@ -13,6 +13,8 @@ import {
   todayDateString,
   itineraryCategoryLabel,
   compareItineraryCategories,
+  placeMapsUrl,
+  bookingMapsUrl,
 } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
@@ -289,12 +291,18 @@ function PlaceDetailFields({
         scrollEnabled={false}
       />
 
-      <View className="mb-2 flex-row items-center gap-3">
+      <View className="mb-2 flex-row flex-wrap items-center gap-3">
         {place.website ? (
           <Text className="text-sm text-category-transit" onPress={() => Linking.openURL(place.website!)}>
             Visit website ↗
           </Text>
         ) : null}
+        {/* The https URL hands off to the Google Maps app when it's installed
+            (Android app links) and opens the site otherwise — no separate
+            comgooglemaps:// scheme needed. */}
+        <Text className="text-sm text-category-transit" onPress={() => Linking.openURL(placeMapsUrl(place))}>
+          Open in Google Maps ↗
+        </Text>
         {place.googlePlaceId ? (
           <Text className="text-sm text-text-muted" onPress={refreshing ? undefined : refresh}>
             {refreshing ? "Refreshing…" : "Refresh from Google ⟳"}
@@ -415,12 +423,16 @@ function BookingEditFields({
   booking,
   legs,
   placeOptions,
+  placeById,
   onClose,
 }: {
   tripId: number;
   booking: Booking | undefined;
   legs: Leg[];
   placeOptions: { id: number; name: string }[];
+  // Needed for coordinates, which placeOptions (id/name only) doesn't carry —
+  // a booking with no address of its own falls back to its linked place.
+  placeById: Map<number, Place>;
   onClose: () => void;
 }) {
   const updateBooking = useUpdateBooking(tripId);
@@ -445,27 +457,35 @@ function BookingEditFields({
   const [lng, setLng] = useState<number | null>(booking?.lng ?? null);
   const [placeId, setPlaceId] = useState<number | null>(booking?.placeId ?? null);
 
+  // A hotel never links to a place, so its own address is the only source.
+  const linkedPlace = type !== "hotel" && placeId != null ? placeById.get(placeId) : undefined;
+  const mapsUrl = bookingMapsUrl({ title, address, lat, lng }, linkedPlace);
+
   if (!booking) {
     return <Text className="text-sm text-text-muted">Booking details unavailable.</Text>;
   }
 
   function save() {
     if (!booking || !title.trim()) return;
+    // Cleared fields send `null`, not `undefined` — the PATCH route only writes
+    // keys that are present, so omitting one leaves the old value in place and
+    // clearing it (e.g. picking "None" for the linked place) would never stick.
+    // See the comment on UpdateBookingBody in @travel/types.
     updateBooking.update(booking.id, {
       type,
       title: title.trim(),
-      confirmationCode: confirmationCode.trim() || undefined,
-      flightNumber: type === "flight" ? flightNumber.trim() || undefined : undefined,
-      startAt: combineDateTime(startDate, startTime),
-      endAt: combineDateTime(endDate, endTime),
-      price: price.trim() ? Number(price) : undefined,
-      currency: currency.trim().length === 3 ? currency.trim().toUpperCase() : undefined,
-      legId: legId ?? undefined,
-      notes: notes.trim() || undefined,
-      address: address || undefined,
-      lat: lat ?? undefined,
-      lng: lng ?? undefined,
-      placeId: type === "hotel" ? undefined : (placeId ?? undefined),
+      confirmationCode: confirmationCode.trim() || null,
+      flightNumber: type === "flight" ? flightNumber.trim() || null : null,
+      startAt: combineDateTime(startDate, startTime) ?? null,
+      endAt: combineDateTime(endDate, endTime) ?? null,
+      price: price.trim() ? Number(price) : null,
+      currency: currency.trim().length === 3 ? currency.trim().toUpperCase() : null,
+      legId: legId ?? null,
+      notes: notes.trim() || null,
+      address: address || null,
+      lat: lat ?? null,
+      lng: lng ?? null,
+      placeId: type === "hotel" ? null : placeId,
     });
     onClose();
   }
@@ -539,7 +559,22 @@ function BookingEditFields({
             setLat(r.lat);
             setLng(r.lng);
           }}
+          onCleared={() => {
+            // lat/lng go with it — an address with no coordinates would just be
+            // an unplottable string.
+            setAddress("");
+            setLat(null);
+            setLng(null);
+          }}
         />
+        {/* Built from the live form state rather than the saved booking, so the
+            link follows an address you just picked. Absent when there's nothing
+            to point at — no coordinates and no linked place. */}
+        {mapsUrl && (
+          <Text className="mt-2 text-sm text-category-transit" onPress={() => Linking.openURL(mapsUrl)}>
+            Open in Google Maps ↗
+          </Text>
+        )}
       </View>
 
       <View className="mb-4 flex-row items-center justify-between">
@@ -879,6 +914,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
             booking={bookings?.find((b) => b.id === editing.bookingId)}
             legs={legs}
             placeOptions={placeOptions}
+            placeById={placeById}
             onClose={() => setEditing(null)}
           />
         ) : editing ? (

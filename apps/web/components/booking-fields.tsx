@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Booking, BookingType, CreateBookingBody } from "@travel/types";
+import type { Booking, BookingType, CreateBookingBody, UpdateBookingBody } from "@travel/types";
 import type { AutocompleteSuggestion } from "@travel/api-client";
 import { travelApi } from "@/lib/api";
 import { sessionToken as makeSessionToken } from "@/lib/sessionToken";
@@ -59,26 +59,42 @@ function combineDateTime(date: string, time: string): string | undefined {
   return `${date}T${time || "00:00"}:00`;
 }
 
-export function formToBody(form: BookingFormState): CreateBookingBody {
+/** Cleared fields become an explicit `null` so they actually persist: the PATCH
+ * route only writes keys that are present, so omitting one leaves the previous
+ * value in place and "No linked place", a blanked address, a removed price etc.
+ * would silently revert. See the comment on UpdateBookingBody in @travel/types. */
+export function formToUpdateBody(form: BookingFormState): UpdateBookingBody {
   return {
     type: form.type,
     title: form.title.trim(),
-    confirmationCode: form.confirmationCode.trim() || undefined,
-    flightNumber: form.type === "flight" ? form.flightNumber.trim() || undefined : undefined,
-    startAt: combineDateTime(form.startDate, form.startTime),
-    endAt: combineDateTime(form.endDate, form.endTime),
-    price: form.price ? Number(form.price) : undefined,
-    currency: form.currency.trim() || undefined,
-    legId: form.legId ? Number(form.legId) : undefined,
+    confirmationCode: form.confirmationCode.trim() || null,
+    flightNumber: form.type === "flight" ? form.flightNumber.trim() || null : null,
+    startAt: combineDateTime(form.startDate, form.startTime) ?? null,
+    endAt: combineDateTime(form.endDate, form.endTime) ?? null,
+    price: form.price ? Number(form.price) : null,
+    currency: form.currency.trim() || null,
+    legId: form.legId ? Number(form.legId) : null,
     // A hotel's own address replaces a library-place link (the two are
     // mutually exclusive there); every other type can carry both — a linked
     // place plus its own address/meetup location, independent of that link.
-    placeId: form.type === "hotel" ? undefined : form.placeId ? Number(form.placeId) : undefined,
-    address: form.address.trim() || undefined,
-    lat: form.lat ? Number(form.lat) : undefined,
-    lng: form.lng ? Number(form.lng) : undefined,
-    notes: form.notes.trim() || undefined,
+    // Switching an existing booking to "hotel" therefore clears the link.
+    placeId: form.type === "hotel" ? null : form.placeId ? Number(form.placeId) : null,
+    address: form.address.trim() || null,
+    lat: form.lat ? Number(form.lat) : null,
+    lng: form.lng ? Number(form.lng) : null,
+    notes: form.notes.trim() || null,
   };
+}
+
+/** Same values as formToUpdateBody, minus the nulls — on create there's nothing
+ * to overwrite, so a cleared field is simply omitted (CreateBookingBody's
+ * optional fields are `.optional()`, not nullable, and would reject a null). */
+export function formToBody(form: BookingFormState): CreateBookingBody {
+  const { type: _type, title: _title, ...optional } = formToUpdateBody(form);
+  const filled = Object.fromEntries(
+    Object.entries(optional).filter(([, value]) => value !== null),
+  ) as Omit<CreateBookingBody, "type" | "title">;
+  return { ...filled, type: form.type, title: form.title.trim() };
 }
 
 export function bookingToForm(booking: Booking): BookingFormState {
@@ -205,7 +221,21 @@ function LocationSearch({ form, onChange }: { form: BookingFormState; onChange: 
           ))}
         </ul>
       )}
-      {form.address && <p className="mt-1 text-xs text-text-muted">{form.address}</p>}
+      {form.address && (
+        <div className="mt-1 flex items-start gap-2">
+          <p className="flex-1 text-xs text-text-muted">{form.address}</p>
+          {/* The search only ever sets an address, so without this a wrong one
+              could be overwritten but never removed. Drops lat/lng too — an
+              address with no coordinates would just be an unplottable string. */}
+          <button
+            type="button"
+            className="shrink-0 text-xs text-text-secondary underline"
+            onClick={() => onChange({ ...form, address: "", lat: "", lng: "" })}
+          >
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   );
 }
