@@ -808,7 +808,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
             className="h-8 w-8 items-center justify-center"
           >
             {/* Google Maps' own pin red, so the icon reads as the Maps app. */}
-            <Ionicons name="location-sharp" size={20} color="#ea4335" />
+            <Ionicons name="location-sharp" size={24} color="#ea4335" />
           </Pressable>
         )}
       </Card>
