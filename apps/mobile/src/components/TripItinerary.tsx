@@ -859,7 +859,13 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
                   <Pressable className="mb-1 flex-row items-center gap-2" onPress={() => toggleCollapsed(catKey)}>
                     <Text className="text-text-muted">{catCollapsed ? "▸" : "▾"}</Text>
                     <CategoryDot entries={catEntries} />
-                    <Text className="text-xs font-semibold uppercase tracking-wide text-text-secondary dark:text-text-secondary-dark">
+                    {/* flex-1 + numberOfLines: letterSpacing (tracking-wide) makes
+                        Android under-measure the text, so the count wrapped to a
+                        second row with room to spare. */}
+                    <Text
+                      numberOfLines={1}
+                      className="flex-1 text-sm font-semibold uppercase tracking-wide text-text-secondary dark:text-text-secondary-dark"
+                    >
                       {label} ({catEntries.length})
                     </Text>
                   </Pressable>
