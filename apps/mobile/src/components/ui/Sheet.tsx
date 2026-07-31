@@ -22,10 +22,14 @@ export function Sheet({
   visible,
   onClose,
   children,
+  footer,
 }: {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  /** Pinned below the scroll area — action rows (Save/Delete) belong here so
+   * they stay reachable no matter how far the form scrolls. */
+  footer?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -54,9 +58,14 @@ export function Sheet({
           onPress={(e) => e.stopPropagation()}
         >
           <View className="mb-3 mt-3 h-1 w-10 self-center rounded-full bg-gridline dark:bg-gridline-dark" />
-          <ScrollView className="px-4 pb-4" keyboardShouldPersistTaps="handled">
+          {/* flexShrink so the scroll area yields space to the footer instead of
+              pushing it past the sheet's maxHeight and off screen. */}
+          <ScrollView style={{ flexShrink: 1 }} className="px-4 pb-4" keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>
+          {footer ? (
+            <View className="border-t border-gridline px-4 pb-4 pt-3 dark:border-gridline-dark">{footer}</View>
+          ) : null}
         </Pressable>
       </Pressable>
     </Modal>

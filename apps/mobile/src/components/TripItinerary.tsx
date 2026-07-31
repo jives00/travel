@@ -25,7 +25,7 @@ import { useUpdatePlace, useRemovePlace } from "../lib/offlineMutations/places";
 import { AutocompleteSearch } from "./AutocompleteSearch";
 import { AddressSearch } from "./AddressSearch";
 import { BookingForm } from "./BookingForm";
-import { Card, Button, TextField, Sheet, SegmentedControl } from "./ui";
+import { Card, Button, TextField, Sheet, SegmentedControl, Dropdown } from "./ui";
 
 interface Entry {
   key: string;
@@ -107,6 +107,23 @@ function CategoryDot({ entries }: { entries: Entry[] }) {
   const group = entries.find((e) => e.mapPinGroup)?.mapPinGroup ?? "other";
   const color = (MAP_PIN_COLORS[group] ?? MAP_PIN_COLORS.other)[theme];
   return <View className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />;
+}
+
+/** The Maps action in the place/booking editors, sitting beside Save rather
+ * than reading as a link in the body. The https URL hands off to the Google
+ * Maps app when it's installed (Android app links) and opens the site
+ * otherwise — no separate comgooglemaps:// scheme needed. */
+function MapsButton({ url }: { url: string }) {
+  return (
+    <Pressable
+      onPress={() => Linking.openURL(url)}
+      accessibilityLabel="Open in Google Maps"
+      className="h-10 flex-row items-center gap-1.5 rounded border border-gridline bg-surface px-3 dark:border-gridline-dark dark:bg-surface-dark"
+    >
+      <Ionicons name="location-sharp" size={18} color="#ea4335" />
+      <Text className="text-sm font-medium text-text-primary dark:text-text-primary-dark">Maps</Text>
+    </Pressable>
+  );
 }
 
 function combineDateTime(date: string, time: string): string | undefined {
@@ -204,7 +221,11 @@ function PlaceDetailFields({
   const [hoursOpen, setHoursOpen] = useState(true);
 
   if (!place) {
-    return <Text className="text-sm text-text-muted">Place details unavailable.</Text>;
+    return (
+      <Sheet visible onClose={onClose}>
+        <Text className="text-sm text-text-muted">Place details unavailable.</Text>
+      </Sheet>
+    );
   }
 
   function saveName() {
@@ -266,7 +287,28 @@ function PlaceDetailFields({
   const cityLabel = legId != null ? (legs.find((l) => l.id === legId)?.city ?? "No city") : "No city";
 
   return (
-    <>
+    <Sheet
+      visible
+      onClose={onClose}
+      footer={
+        <View className="flex-row items-center justify-between gap-2">
+          <View className="flex-row items-center gap-2">
+            <Button title="Save" onPress={saveSchedule} />
+            <MapsButton url={placeMapsUrl(place)} />
+          </View>
+          <View className="flex-row items-center gap-2">
+            <Pressable
+              onPress={() => setIsPrivate((p) => !p)}
+              accessibilityLabel={isPrivate ? "Make public" : "Make private"}
+              className="h-10 w-10 items-center justify-center rounded border border-gridline bg-surface dark:border-gridline-dark dark:bg-surface-dark"
+            >
+              <Ionicons name={isPrivate ? "lock-closed" : "lock-open-outline"} size={18} color="#898781" />
+            </Pressable>
+            <Button variant="danger" title="Delete" onPress={remove} />
+          </View>
+        </View>
+      }
+    >
       {place.heroPhotoUrl ? (
         <Image source={{ uri: place.heroPhotoUrl }} className="-mx-4 mb-3 h-48" resizeMode="cover" />
       ) : null}
@@ -302,12 +344,6 @@ function PlaceDetailFields({
             Visit website ↗
           </Text>
         ) : null}
-        {/* The https URL hands off to the Google Maps app when it's installed
-            (Android app links) and opens the site otherwise — no separate
-            comgooglemaps:// scheme needed. */}
-        <Text className="text-sm text-category-transit" onPress={() => Linking.openURL(placeMapsUrl(place))}>
-          Open in Google Maps ↗
-        </Text>
         {place.googlePlaceId ? (
           <Text className="text-sm text-text-muted" onPress={refreshing ? undefined : refresh}>
             {refreshing ? "Refreshing…" : "Refresh from Google ⟳"}
@@ -374,20 +410,6 @@ function PlaceDetailFields({
         <TextField label="Date" value={scheduledDate} onChangeText={setScheduledDate} placeholder="YYYY-MM-DD" />
       </View>
 
-      <View className="mb-4 flex-row items-center justify-between gap-2">
-        <Button title="Save" onPress={saveSchedule} />
-        <View className="flex-row items-center gap-2">
-          <Pressable
-            onPress={() => setIsPrivate((p) => !p)}
-            accessibilityLabel={isPrivate ? "Make public" : "Make private"}
-            className="h-10 w-10 items-center justify-center rounded border border-gridline bg-surface dark:border-gridline-dark dark:bg-surface-dark"
-          >
-            <Ionicons name={isPrivate ? "lock-closed" : "lock-open-outline"} size={18} color="#898781" />
-          </Pressable>
-          <Button variant="danger" title="Delete" onPress={remove} />
-        </View>
-      </View>
-
       <Sheet visible={pickingCategory} onClose={() => setPickingCategory(false)}>
         <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">Category</Text>
         {PLACE_TAGS.map((t) => (
@@ -416,7 +438,7 @@ function PlaceDetailFields({
           </Pressable>
         ))}
       </Sheet>
-    </>
+    </Sheet>
   );
 }
 
@@ -467,7 +489,11 @@ function BookingEditFields({
   const mapsUrl = bookingMapsUrl({ title, address, lat, lng }, linkedPlace);
 
   if (!booking) {
-    return <Text className="text-sm text-text-muted">Booking details unavailable.</Text>;
+    return (
+      <Sheet visible onClose={onClose}>
+        <Text className="text-sm text-text-muted">Booking details unavailable.</Text>
+      </Sheet>
+    );
   }
 
   function save() {
@@ -502,9 +528,29 @@ function BookingEditFields({
   }
 
   return (
-    <>
-      <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">Type</Text>
-      <SegmentedControl className="mb-3" segments={BOOKING_TYPES.map((t) => ({ value: t.key as BookingType, label: t.label }))} value={type} onChange={setType} />
+    <Sheet
+      visible
+      onClose={onClose}
+      footer={
+        <View className="flex-row items-center justify-between">
+          <View className="flex-row items-center gap-2">
+            <Button title="Save" onPress={save} loading={updateBooking.isPending} disabled={!title.trim()} />
+            {/* Built from the live form state rather than the saved booking, so it
+                follows an address you just picked. Absent when there's nothing to
+                point at — no coordinates and no linked place. */}
+            {mapsUrl && <MapsButton url={mapsUrl} />}
+          </View>
+          <Button variant="danger" title="Delete" onPress={remove} />
+        </View>
+      }
+    >
+      <Dropdown
+        className="mb-3"
+        label="Type"
+        value={type}
+        options={BOOKING_TYPES.map((t) => ({ value: t.key as BookingType, label: t.label }))}
+        onChange={setType}
+      />
 
       <TextField className="mb-3" label="Title" value={title} onChangeText={setTitle} />
       <View className="mb-3 flex-row gap-2">
@@ -529,29 +575,25 @@ function BookingEditFields({
       </View>
 
       {legs.length > 0 && (
-        <>
-          <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">City (optional)</Text>
-          <SegmentedControl
-            className="mb-3"
-            segments={[{ value: "none", label: "None" }, ...legs.map((l) => ({ value: String(l.id), label: l.city }))]}
-            value={legId == null ? "none" : String(legId)}
-            onChange={(v) => setLegId(v === "none" ? null : Number(v))}
-          />
-        </>
+        <Dropdown
+          className="mb-3"
+          label="City (optional)"
+          value={legId}
+          options={[{ value: null, label: "None" }, ...legs.map((l) => ({ value: l.id as number | null, label: l.city }))]}
+          onChange={setLegId}
+        />
       )}
 
       {/* Not offered for hotels — their own address already fills the "where
           is this" role a linked place would. Mirrors web's BookingDetailPanel. */}
       {type !== "hotel" && placeOptions.length > 0 && (
-        <>
-          <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">Linked place (optional)</Text>
-          <SegmentedControl
-            className="mb-3"
-            segments={[{ value: "none", label: "None" }, ...placeOptions.map((p) => ({ value: String(p.id), label: p.name }))]}
-            value={placeId == null ? "none" : String(placeId)}
-            onChange={(v) => setPlaceId(v === "none" ? null : Number(v))}
-          />
-        </>
+        <Dropdown
+          className="mb-3"
+          label="Linked place (optional)"
+          value={placeId}
+          options={[{ value: null, label: "None" }, ...placeOptions.map((p) => ({ value: p.id as number | null, label: p.name }))]}
+          onChange={setPlaceId}
+        />
       )}
 
       <TextField className="mb-3" label="Notes" value={notes} onChangeText={setNotes} multiline numberOfLines={3} />
@@ -572,21 +614,8 @@ function BookingEditFields({
             setLng(null);
           }}
         />
-        {/* Built from the live form state rather than the saved booking, so the
-            link follows an address you just picked. Absent when there's nothing
-            to point at — no coordinates and no linked place. */}
-        {mapsUrl && (
-          <Text className="mt-2 text-sm text-category-transit" onPress={() => Linking.openURL(mapsUrl)}>
-            Open in Google Maps ↗
-          </Text>
-        )}
       </View>
-
-      <View className="mb-4 flex-row items-center justify-between">
-        <Button title="Save" onPress={save} loading={updateBooking.isPending} disabled={!title.trim()} />
-        <Button variant="danger" title="Delete" onPress={remove} />
-      </View>
-    </>
+    </Sheet>
   );
 }
 
@@ -889,7 +918,18 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
 
       {/* Add place/booking/idea — opened from a city's + icon (legId preset) or
           the generic button above (no city preset), matching web's AddItemModal. */}
-      <Sheet visible={addingLegId !== undefined} onClose={closeAdd}>
+      <Sheet
+        visible={addingLegId !== undefined}
+        onClose={closeAdd}
+        // Only the idea form's action lives out here; Place searches (no button
+        // of its own) and Booking keeps its Save inside BookingForm, which owns
+        // the state it needs.
+        footer={
+          addingLegId !== undefined && addMode === "activity" ? (
+            <Button title="Add" onPress={saveIdea} disabled={!addIdeaText.trim()} />
+          ) : undefined
+        }
+      >
         {addingLegId !== undefined && (
           <>
             <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">
@@ -928,7 +968,6 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
                 <View className="mb-3">
                   <TextField label="Date (optional)" value={addDate} onChangeText={setAddDate} placeholder="YYYY-MM-DD" />
                 </View>
-                <Button title="Add" onPress={saveIdea} disabled={!addIdeaText.trim()} />
               </>
             )}
           </>
@@ -936,36 +975,31 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
       </Sheet>
 
       {/* Edit entry — a place gets the full detail view, a booking gets the full
-          booking form, an idea gets a lightweight text + schedule editor. */}
-      <Sheet visible={editing != null} onClose={() => setEditing(null)}>
-        {editing && editing.kind === "place" ? (
-          <PlaceDetailFields
-            tripId={tripId}
-            entry={editing}
-            place={editing.placeId != null ? placeById.get(editing.placeId) : undefined}
-            legs={legs}
-            onClose={() => setEditing(null)}
-          />
-        ) : editing && editing.kind === "booking" ? (
-          <BookingEditFields
-            tripId={tripId}
-            booking={bookings?.find((b) => b.id === editing.bookingId)}
-            legs={legs}
-            placeOptions={placeOptions}
-            placeById={placeById}
-            onClose={() => setEditing(null)}
-          />
-        ) : editing ? (
-          <>
-            <TextField
-              className="mb-3"
-              label="Idea"
-              value={activityDraft}
-              onChangeText={setActivityDraft}
-            />
-            <View className="mb-3">
-              <TextField label="Date" value={dateDraft} onChangeText={setDateDraft} placeholder="YYYY-MM-DD" />
-            </View>
+          booking form, an idea gets a lightweight text + schedule editor. Each
+          owns its own Sheet so its action row can be the pinned footer, which
+          needs that editor's own state. */}
+      {editing && editing.kind === "place" ? (
+        <PlaceDetailFields
+          tripId={tripId}
+          entry={editing}
+          place={editing.placeId != null ? placeById.get(editing.placeId) : undefined}
+          legs={legs}
+          onClose={() => setEditing(null)}
+        />
+      ) : editing && editing.kind === "booking" ? (
+        <BookingEditFields
+          tripId={tripId}
+          booking={bookings?.find((b) => b.id === editing.bookingId)}
+          legs={legs}
+          placeOptions={placeOptions}
+          placeById={placeById}
+          onClose={() => setEditing(null)}
+        />
+      ) : editing ? (
+        <Sheet
+          visible
+          onClose={() => setEditing(null)}
+          footer={
             <View className="flex-row items-center justify-between gap-2">
               <Button title="Save" onPress={saveEdit} />
               <Button
@@ -975,9 +1009,14 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
               />
               <Button variant="danger" title="Remove" onPress={() => removeEntry(editing)} />
             </View>
-          </>
-        ) : null}
-      </Sheet>
+          }
+        >
+          <TextField className="mb-3" label="Idea" value={activityDraft} onChangeText={setActivityDraft} />
+          <View className="mb-3">
+            <TextField label="Date" value={dateDraft} onChangeText={setDateDraft} placeholder="YYYY-MM-DD" />
+          </View>
+        </Sheet>
+      ) : null}
     </View>
   );
 }
