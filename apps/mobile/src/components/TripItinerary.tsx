@@ -759,7 +759,23 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     });
   }
 
+  /** The Google Maps link for a card, so it's reachable without opening the
+   * entry first. Ideas have no location; bookings fall back to their linked
+   * place, same as the booking edit form. */
+  function entryMapsUrl(e: Entry): string | null {
+    if (e.kind === "place") {
+      const place = e.placeId != null ? placeById.get(e.placeId) : undefined;
+      return place ? placeMapsUrl(place) : null;
+    }
+    if (e.kind === "booking" && e.booking) {
+      const linkedPlace = e.booking.type !== "hotel" && e.booking.placeId != null ? placeById.get(e.booking.placeId) : undefined;
+      return bookingMapsUrl(e.booking, linkedPlace);
+    }
+    return null;
+  }
+
   function renderEntryRow(e: Entry) {
+    const mapsUrl = entryMapsUrl(e);
     return (
       <Card key={e.key} className={`mb-2 flex-row items-center gap-2 ${e.completed ? "opacity-50" : ""}`}>
         <Pressable
@@ -784,6 +800,17 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
               : ""}
           </Text>
         </Pressable>
+        {mapsUrl && (
+          <Pressable
+            onPress={() => Linking.openURL(mapsUrl)}
+            accessibilityLabel={`Open ${e.title} in Google Maps`}
+            hitSlop={8}
+            className="h-8 w-8 items-center justify-center"
+          >
+            {/* Google Maps' own pin red, so the icon reads as the Maps app. */}
+            <Ionicons name="location-sharp" size={20} color="#ea4335" />
+          </Pressable>
+        )}
       </Card>
     );
   }
