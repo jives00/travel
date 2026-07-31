@@ -120,7 +120,12 @@ function sortEntries(a: Entry, b: Entry): number {
     return a.scheduledDate < b.scheduledDate ? -1 : 1;
   if (a.scheduledDate && !b.scheduledDate) return -1;
   if (!a.scheduledDate && b.scheduledDate) return 1;
-  return (a.time ?? "").localeCompare(b.time ?? "");
+  const byTime = (a.time ?? "").localeCompare(b.time ?? "");
+  if (byTime !== 0) return byTime;
+  // Alphabetical last, so entries that tie on every scheduling field — which is
+  // all of them in the dateless categories (To See, Food & Drinks, …) — land in
+  // a predictable order instead of whatever order they were fetched in.
+  return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
 }
 
 function toDateOnlyString(d: string): string {
