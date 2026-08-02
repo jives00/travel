@@ -7,6 +7,7 @@ import { createAuthEndpoints } from "./endpoints/auth";
 import { createPlacesEndpoints } from "./endpoints/places";
 import { createTripsEndpoints } from "./endpoints/trips";
 import { createItineraryEndpoints } from "./endpoints/itinerary";
+import { createDayNotesEndpoints } from "./endpoints/dayNotes";
 import { createBookingsEndpoints } from "./endpoints/bookings";
 import { createExpensesEndpoints } from "./endpoints/expenses";
 import { createListsEndpoints } from "./endpoints/lists";
@@ -17,6 +18,7 @@ import { createWishlistEndpoints } from "./endpoints/wishlist";
 import { createPlacesQueries } from "./queries/placesQuery";
 import { createTripQueries } from "./queries/tripQuery";
 import { createItineraryQueries } from "./queries/itineraryQuery";
+import { createDayNotesQueries } from "./queries/dayNotesQuery";
 import { createBookingsQueries } from "./queries/bookingsQuery";
 import { createBudgetQueries } from "./queries/budgetQuery";
 import { createListsQueries } from "./queries/listsQuery";
@@ -52,6 +54,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
   const places = createPlacesEndpoints(request);
   const trips = createTripsEndpoints(request);
   const itinerary = createItineraryEndpoints(request);
+  const dayNotes = createDayNotesEndpoints(request);
   const bookings = createBookingsEndpoints(request);
   const expenses = createExpensesEndpoints(request);
   const lists = createListsEndpoints(request);
@@ -65,6 +68,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
     places,
     trips,
     itinerary,
+    dayNotes,
     bookings,
     expenses,
     lists,
@@ -75,6 +79,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
       ...createPlacesQueries(places),
       ...createTripQueries(trips),
       ...createItineraryQueries(itinerary),
+      ...createDayNotesQueries(dayNotes),
       ...createBookingsQueries(bookings),
       ...createBudgetQueries(expenses),
       ...createListsQueries(lists),

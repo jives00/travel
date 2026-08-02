@@ -34,6 +34,9 @@ export async function prefetchPrimaryTrip(): Promise<void> {
     queryClient.prefetchQuery(travelApi.queries.budgetQuery(id)),
     queryClient.prefetchQuery(travelApi.queries.expensesQuery(id)),
     queryClient.prefetchQuery(travelApi.queries.weatherQuery(id)),
+    // Day notes are part of the calendar view's offline story — a free day's
+    // plan is exactly the thing you want readable with no signal.
+    queryClient.prefetchQuery(travelApi.queries.dayNotesQuery(id)),
     // Settings + the whole place library are cheap and useful offline too.
     queryClient.prefetchQuery(travelApi.queries.settingsQuery()),
   ]);

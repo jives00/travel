@@ -3,6 +3,7 @@ export * from "./auth";
 export * from "./place";
 export * from "./trip";
 export * from "./itinerary";
+export * from "./dayNote";
 export * from "./booking";
 export * from "./expense";
 export * from "./list";

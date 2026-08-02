@@ -11,6 +11,8 @@ import {
   mapPinGroupForTag,
   mapPinGroupForBookingType,
   todayDateString,
+  formatDayHeading,
+  type TripDay,
   itineraryCategoryLabel,
   compareItineraryCategories,
   placeMapsUrl,
@@ -25,9 +27,12 @@ import { useUpdatePlace, useRemovePlace } from "../lib/offlineMutations/places";
 import { AutocompleteSearch } from "./AutocompleteSearch";
 import { AddressSearch } from "./AddressSearch";
 import { BookingForm } from "./BookingForm";
+import { TripCalendar } from "./TripCalendar";
 import { Card, Button, TextField, Sheet, SegmentedControl, Dropdown } from "./ui";
 
-interface Entry {
+/** Exported for the calendar view, which renders the same entries through this
+ * component's own row renderer. Type-only, so there's no runtime import cycle. */
+export interface Entry {
   key: string;
   kind: "booking" | "place" | "activity";
   legId: number | null;
@@ -634,9 +639,29 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
   const updateBooking = useUpdateBooking(tripId);
 
   const [addingLegId, setAddingLegId] = useState<number | null | undefined>(undefined);
-  const [addMode, setAddMode] = useState<"place" | "booking" | "activity">("place");
+  const [addMode, setAddMode] = useState<"place" | "booking" | "activity" | "existing">("place");
   const [addIdeaText, setAddIdeaText] = useState("");
   const [addDate, setAddDate] = useState("");
+
+  // List vs. calendar, remembered per trip like the collapse state below —
+  // read in an effect rather than a useState initializer because AsyncStorage
+  // is async and the first render has to commit before it resolves.
+  const viewStorageKey = `travel:itinerary:view:${tripId}`;
+  const [view, setView] = useState<"list" | "calendar">("list");
+  useEffect(() => {
+    let cancelled = false;
+    void AsyncStorage.getItem(viewStorageKey).then((raw) => {
+      if (!cancelled && raw === "calendar") setView("calendar");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [viewStorageKey]);
+
+  function selectView(next: "list" | "calendar") {
+    setView(next);
+    void AsyncStorage.setItem(viewStorageKey, next);
+  }
   const [editing, setEditing] = useState<Entry | null>(null);
   const [dateDraft, setDateDraft] = useState("");
   const [activityDraft, setActivityDraft] = useState("");
@@ -725,11 +750,50 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     { key: "unscheduled", label: "Unscheduled", entries: entriesByGroup.get("unscheduled") ?? [] },
   ].filter((g) => g.entries.length > 0 || g.key.startsWith("leg-"));
 
+  /** Everything with no date on it — what the calendar's day sheet offers to
+   * drop onto the day you tapped. */
+  const undatedEntries = useMemo(
+    () => entries.filter((e) => !e.scheduledDate).sort(sortEntries),
+    [entries],
+  );
+
   function openAdd(legId: number | null) {
     setAddingLegId(legId);
     setAddMode("place");
     setAddIdeaText("");
     setAddDate("");
+  }
+
+  /** The calendar's per-day +. Opens on Existing when there's anything waiting
+   * to be scheduled — from a specific day the usual intent is "put one of those
+   * here", not "create something new" — and falls back to Place when there
+   * isn't, so you never land on an empty list. Mirrors web. */
+  function openAddForDay(day: TripDay) {
+    setAddingLegId(day.legId);
+    setAddMode(undatedEntries.length > 0 ? "existing" : "place");
+    setAddIdeaText("");
+    setAddDate(day.date);
+  }
+
+  /** One tap assigns an already-saved entry to the day the sheet was opened
+   * from. A booking carries its date on startAt (midnight = no time set); a
+   * place/idea carries scheduledDate. The day's leg goes along with it so the
+   * entry also lands in the right city in the list view. */
+  function scheduleExisting(entry: Entry) {
+    if (!addDate) return;
+    const legId = addingLegId ?? undefined;
+    if (entry.kind === "booking" && entry.bookingId != null) {
+      updateBooking.update(entry.bookingId, {
+        startAt: `${addDate}T00:00:00`,
+        ...(legId != null ? { legId } : {}),
+      });
+    } else if (entry.itemId != null) {
+      move.mutate({
+        itemId: entry.itemId,
+        body: { scheduledDate: addDate, ...(legId != null ? { legId } : {}) },
+      });
+    }
+    closeAdd();
   }
 
   function closeAdd() {
@@ -851,6 +915,26 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
 
   return (
     <View>
+      <SegmentedControl
+        className="mb-3"
+        segments={[
+          { value: "list", label: "List" },
+          { value: "calendar", label: "Calendar" },
+        ]}
+        value={view}
+        onChange={selectView}
+      />
+
+      {view === "calendar" ? (
+        <TripCalendar
+          tripId={tripId}
+          legs={sortedLegs}
+          entries={[...entries].sort(sortEntries)}
+          renderEntry={renderEntryRow}
+          onAddToDay={openAddForDay}
+        />
+      ) : (
+        <>
       {groups.map((g) => {
         const collapsed = collapsedLegs.has(g.key);
         const isLeg = g.key.startsWith("leg-");
@@ -915,6 +999,8 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
       })}
 
       <Button title="+ Add to itinerary" variant="secondary" onPress={() => openAdd(null)} />
+        </>
+      )}
 
       {/* Add place/booking/idea — opened from a city's + icon (legId preset) or
           the generic button above (no city preset), matching web's AddItemModal. */}
@@ -933,11 +1019,20 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
         {addingLegId !== undefined && (
           <>
             <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">
-              {addingLegId != null ? `Add to ${legs.find((l) => l.id === addingLegId)?.city ?? "trip"}` : "Add to itinerary"}
+              {addDate
+                ? `Add to ${formatDayHeading(addDate)}`
+                : addingLegId != null
+                  ? `Add to ${legs.find((l) => l.id === addingLegId)?.city ?? "trip"}`
+                  : "Add to itinerary"}
             </Text>
             <SegmentedControl
               className="mb-3"
               segments={[
+                // Only offered from a specific day, and only when there's
+                // actually something undated to move onto it.
+                ...(addDate && undatedEntries.length > 0
+                  ? [{ value: "existing" as const, label: "Existing" }]
+                  : []),
                 { value: "place", label: "Place" },
                 { value: "booking", label: "Booking" },
                 { value: "activity", label: "Idea" },
@@ -945,11 +1040,36 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
               value={addMode}
               onChange={setAddMode}
             />
-            {addMode === "place" ? (
+            {addMode === "existing" ? (
+              <View>
+                <Text className="mb-2 text-xs text-text-muted">
+                  Tap one to schedule it for this day.
+                </Text>
+                {undatedEntries.map((e) => (
+                  <Pressable key={e.key} onPress={() => scheduleExisting(e)}>
+                    <Card className="mb-2">
+                      <Text className="text-text-primary dark:text-text-primary-dark">
+                        {e.isPrivate ? "🔒 " : ""}
+                        {e.title}
+                      </Text>
+                      <Text className="text-xs text-text-muted">{e.subtitle}</Text>
+                    </Card>
+                  </Pressable>
+                ))}
+              </View>
+            ) : addMode === "place" ? (
               <AutocompleteSearch
                 tripId={tripId}
                 onCreated={(place) => {
-                  scheduleItem.schedule({ itemType: "place", placeId: place.id, legId: addingLegId ?? undefined });
+                  scheduleItem.schedule({
+                    itemType: "place",
+                    placeId: place.id,
+                    legId: addingLegId ?? undefined,
+                    // Preset when the sheet was opened from a calendar day, so a
+                    // place searched up there lands on that day rather than
+                    // dropping into the undated pile.
+                    scheduledDate: addDate.trim() || undefined,
+                  });
                   closeAdd();
                 }}
                 onCancel={closeAdd}
