@@ -12,6 +12,7 @@ import {
   useReorderItems,
   useSetTrip,
 } from "../lib/offlineMutations/lists";
+import { useHideDone, toggleHideDone } from "../lib/hideDoneLists";
 import { TextField, Button, Card } from "./ui";
 import { TripPickerSheet } from "./TripPickerSheet";
 
@@ -44,6 +45,7 @@ export function ListCard({
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [pickingTrip, setPickingTrip] = useState(false);
+  const hideDone = useHideDone(list.id);
   const addItem = useAddItem();
   const setDone = useSetItemDone();
   const updateItemText = useUpdateItemText();
@@ -62,6 +64,22 @@ export function ListCard({
     const trimmed = editDraft.trim();
     setEditingItemId(null);
     if (trimmed) updateItemText.mutate({ listId: list.id, itemId, text: trimmed });
+  }
+
+  const doneCount = list.items.filter((i) => i.done).length;
+  const visibleItems = hideDone ? list.items.filter((i) => !i.done) : list.items;
+
+  /** Reordering works off the full item order even when completed items are
+   * hidden: the dragged visible sequence is spliced back into the positions the
+   * visible items held, so hidden items keep theirs. */
+  function reorderedIds(visible: ListItem[]): number[] {
+    if (!hideDone) return visible.map((i) => i.id);
+    const slots = list.items.flatMap((item, index) => (item.done ? [] : [index]));
+    const merged = list.items.map((i) => i.id);
+    slots.forEach((slot, n) => {
+      merged[slot] = visible[n].id;
+    });
+    return merged;
   }
 
   function renderItem(item: ListItem, drag?: () => void, isActive = false) {
@@ -141,6 +159,13 @@ export function ListCard({
           <Pressable onPress={() => copy.mutate({ listId: list.id })}>
             <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">Copy</Text>
           </Pressable>
+          {doneCount > 0 && (
+            <Pressable onPress={() => toggleHideDone(list.id)}>
+              <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">
+                {hideDone ? `Show done (${doneCount})` : "Hide done"}
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -148,15 +173,17 @@ export function ListCard({
         <>
           {list.items.length === 0 ? (
             <Text className="mb-2 text-sm text-text-muted">No items yet.</Text>
+          ) : visibleItems.length === 0 ? (
+            <Text className="mb-2 text-sm text-text-muted">All {doneCount} items done.</Text>
           ) : reorderable ? (
             <NestableDraggableFlatList
-              data={list.items}
+              data={visibleItems}
               keyExtractor={(item) => String(item.id)}
               renderItem={({ item, drag, isActive }) => renderItem(item, drag, isActive)}
-              onDragEnd={({ data }) => reorderItems.mutate({ listId: list.id, itemIds: data.map((i) => i.id) })}
+              onDragEnd={({ data }) => reorderItems.mutate({ listId: list.id, itemIds: reorderedIds(data) })}
             />
           ) : (
-            list.items.map((item) => renderItem(item))
+            visibleItems.map((item) => renderItem(item))
           )}
 
           <View className="mt-2 flex-row gap-2">

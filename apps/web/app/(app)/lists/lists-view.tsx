@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { travelApi } from "@/lib/api";
+import { useHideDoneLists } from "@/lib/listPrefs";
 
 export function ListsView() {
   const queryClient = useQueryClient();
@@ -16,6 +17,7 @@ export function ListsView() {
   const [renameDraft, setRenameDraft] = useState("");
   const [dragItemId, setDragItemId] = useState<number | null>(null);
   const [dragListId, setDragListId] = useState<number | null>(null);
+  const { hidesDone, toggleHideDone } = useHideDoneLists();
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editItemDraft, setEditItemDraft] = useState("");
 
@@ -165,7 +167,14 @@ export function ListsView() {
       </form>
 
       <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {(lists ?? []).map((list) => (
+        {(lists ?? []).map((list) => {
+          const hideDone = hidesDone(list.id);
+          const doneCount = list.items.filter((i) => i.done).length;
+          // Reordering still works off the full item order even when completed
+          // items are hidden, so a drag between two visible rows can't drop the
+          // hidden ones out of the list.
+          const visibleItems = hideDone ? list.items.filter((i) => !i.done) : list.items;
+          return (
           <li
             key={list.id}
             draggable
@@ -204,6 +213,15 @@ export function ListsView() {
                 )}
               </div>
               <div className="flex items-center gap-3">
+                {doneCount > 0 && (
+                  <button
+                    onClick={() => toggleHideDone(list.id)}
+                    className="text-xs text-text-secondary hover:text-text-primary"
+                    title={hideDone ? "Show completed items" : "Hide completed items"}
+                  >
+                    {hideDone ? `Show done (${doneCount})` : "Hide done"}
+                  </button>
+                )}
                 <button
                   onClick={() => resetList(list.id, list.name)}
                   className="text-xs text-text-secondary hover:text-text-primary"
@@ -231,7 +249,7 @@ export function ListsView() {
               ))}
             </select>
             <ul className="mb-2 space-y-2">
-              {list.items.map((item) => (
+              {visibleItems.map((item) => (
                 <li
                   key={item.id}
                   draggable
@@ -283,6 +301,9 @@ export function ListsView() {
                 </li>
               ))}
               {list.items.length === 0 && <p className="text-sm text-text-muted">No items yet.</p>}
+              {list.items.length > 0 && visibleItems.length === 0 && (
+                <p className="text-sm text-text-muted">All {doneCount} items done.</p>
+              )}
             </ul>
             <form onSubmit={(e) => addItem(e, list.id)} className="flex gap-2">
               <input
@@ -296,7 +317,8 @@ export function ListsView() {
               </button>
             </form>
           </li>
-        ))}
+          );
+        })}
         {(lists ?? []).length === 0 && <p className="text-text-muted">No custom lists yet.</p>}
       </ul>
     </div>

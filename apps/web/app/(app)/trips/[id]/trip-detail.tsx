@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, Leg, Trip } from "@travel/types";
 import { buildShareItineraryText } from "@travel/core";
 import { travelApi } from "@/lib/api";
+import { useHideDoneLists } from "@/lib/listPrefs";
 import { Modal, TripItinerary } from "./trip-itinerary";
 import { TripWeather } from "./trip-weather";
 import { TripMap } from "./trip-map";
@@ -229,6 +230,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
   useEffect(() => {
     setCollapsedListIds(loadCollapsedListIds());
   }, []);
+  const { hidesDone, toggleHideDone } = useHideDoneLists();
   const [listItemText, setListItemText] = useState<Record<number, string>>({});
 
   function toggleListCollapsed(listId: number) {
@@ -599,18 +601,32 @@ export function TripDetail({ tripId }: { tripId: number }) {
               <div className="space-y-3">
                 {linkedLists.map((list) => {
                   const collapsed = collapsedListIds.has(list.id);
+                  const hideDone = hidesDone(list.id);
+                  const doneCount = list.items.filter((i) => i.done).length;
+                  const visibleItems = hideDone ? list.items.filter((i) => !i.done) : list.items;
                   return (
                     <div key={list.id}>
-                      <button
-                        onClick={() => toggleListCollapsed(list.id)}
-                        className="flex w-full items-center gap-2 text-left font-medium text-text-primary"
-                      >
-                        <span className="select-none text-text-muted">{collapsed ? "▸" : "▾"}</span>
-                        {list.name}
-                      </button>
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => toggleListCollapsed(list.id)}
+                          className="flex flex-1 items-center gap-2 text-left font-medium text-text-primary"
+                        >
+                          <span className="select-none text-text-muted">{collapsed ? "▸" : "▾"}</span>
+                          {list.name}
+                        </button>
+                        {!collapsed && doneCount > 0 && (
+                          <button
+                            onClick={() => toggleHideDone(list.id)}
+                            className="text-xs text-text-secondary hover:text-text-primary"
+                            title={hideDone ? "Show completed items" : "Hide completed items"}
+                          >
+                            {hideDone ? `Show done (${doneCount})` : "Hide done"}
+                          </button>
+                        )}
+                      </div>
                       {!collapsed && (
                         <ul className="mt-2 ml-5 space-y-2">
-                          {list.items.map((item) => (
+                          {visibleItems.map((item) => (
                             <li key={item.id} className="flex items-center gap-2 text-base text-text-primary">
                               <input
                                 type="checkbox"
@@ -624,6 +640,9 @@ export function TripDetail({ tripId }: { tripId: number }) {
                             </li>
                           ))}
                           {list.items.length === 0 && <p className="text-sm text-text-muted">No items yet.</p>}
+                          {list.items.length > 0 && visibleItems.length === 0 && (
+                            <p className="text-sm text-text-muted">All {doneCount} items done.</p>
+                          )}
                         </ul>
                       )}
                       {!collapsed && (
