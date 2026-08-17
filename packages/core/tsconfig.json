@@ -3,7 +3,14 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "noEmit": false
+    "noEmit": false,
+    // This package is platform-free: web, mobile and the API all consume it, so
+    // it may not reach for Buffer, DOM or other host globals. "types": []
+    // enforces that by refusing ambient @types, and — just as importantly —
+    // makes a local build fail the same way CI does. Without it, a full
+    // workspace install hoists @types/node into the root and quietly satisfies
+    // globals like TextEncoder that the web image's filtered install does not.
+    "types": []
   },
   "include": ["src"],
   "exclude": ["src/__tests__"]

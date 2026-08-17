@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildKmlLayer, escapeXml, kmlFileName } from "../kml";
-import { createZip, crc32 } from "../zip";
+import { createZip, crc32, utf8Bytes } from "../zip";
 import { groupByLeg, legIdForScheduling } from "../exportGrouping";
 
 const PADDLE = (name: string) => `https://maps.google.com/mapfiles/kml/paddle/${name}.png`;
@@ -148,10 +148,31 @@ describe("groupByLeg", () => {
   });
 });
 
+// Hand-rolled rather than TextEncoder (see zip.ts), so it is checked against
+// Node's Buffer, which is the reference implementation here — the test runs in
+// node even though the source deliberately cannot use Buffer.
+describe("utf8Bytes", () => {
+  const cases = [
+    "plain ascii",
+    "Bar Cañete", // 2-byte
+    "Montjuïc / Güell", // 2-byte, repeated
+    "日本語", // 3-byte
+    "emoji 🗺️ pin 🏨", // 4-byte, surrogate pairs
+    "", // empty
+    "\u{10FFFF}", // highest code point
+  ];
+
+  for (const value of cases) {
+    it(`matches Buffer for ${JSON.stringify(value)}`, () => {
+      expect(Array.from(utf8Bytes(value))).toEqual(Array.from(Buffer.from(value, "utf8")));
+    });
+  }
+});
+
 describe("createZip", () => {
   it("computes the standard CRC-32", () => {
     // Known IEEE 802.3 check value for "123456789".
-    expect(crc32(new TextEncoder().encode("123456789"))).toBe(0xcbf43926);
+    expect(crc32(utf8Bytes("123456789"))).toBe(0xcbf43926);
   });
 
   it("writes a readable store-only archive", () => {

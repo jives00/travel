@@ -34,9 +34,48 @@ export function crc32(bytes: Uint8Array): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-function utf8(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
+/**
+ * UTF-8 encode, by hand rather than via TextEncoder.
+ *
+ * TextEncoder is a host global, not part of the ES2022 lib this package
+ * compiles against, so `tsc` only found it when a full workspace install
+ * happened to hoist @types/node — the filtered install the web Docker image
+ * uses doesn't, and the build broke there. Encoding it here keeps the package
+ * genuinely platform-free (the same reason it avoids Buffer), which also
+ * matters for React Native, where TextEncoder isn't dependable either.
+ */
+export function utf8Bytes(value: string): Uint8Array {
+  const out: number[] = [];
+  for (let i = 0; i < value.length; i++) {
+    let code = value.charCodeAt(i);
+    // Combine a surrogate pair into the single code point it represents;
+    // encoding each half separately would emit CESU-8, not UTF-8.
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        code = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
+        i++;
+      }
+    }
+    if (code < 0x80) {
+      out.push(code);
+    } else if (code < 0x800) {
+      out.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+    } else if (code < 0x10000) {
+      out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+    } else {
+      out.push(
+        0xf0 | (code >> 18),
+        0x80 | ((code >> 12) & 0x3f),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f),
+      );
+    }
+  }
+  return Uint8Array.from(out);
 }
+
+const utf8 = utf8Bytes;
 
 function u16(value: number): number[] {
   return [value & 0xff, (value >>> 8) & 0xff];
