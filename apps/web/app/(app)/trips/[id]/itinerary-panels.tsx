@@ -34,6 +34,12 @@ import { type Entry, type LegOption, formatDateRange, formatTime12h, toDateOnlyS
 // add/edit dialogs, and the inline place/booking detail panels — so the list
 // view and the calendar view render an entry identically.
 
+// The "open this elsewhere" deep links (Google Maps / Google Calendar) render
+// as filled buttons on their own row under the address, in both the place
+// and the booking panel.
+const deepLinkButtonClass =
+  "inline-flex items-center gap-1 rounded bg-category-transit px-3 py-1.5 text-sm font-medium text-white hover:opacity-90";
+
 export function Modal({
   onClose,
   wide,
@@ -776,6 +782,19 @@ export function PlaceDetailPanel({
             </p>
             {place.address && <p className="text-sm text-text-secondary">{place.address}</p>}
           </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <a href={placeMapsUrl(place)} target="_blank" rel="noreferrer" className={deepLinkButtonClass}>
+              Open in Google Maps ↗
+            </a>
+            {/* Null until the item has a date — an unscheduled place has no
+                event to create. Reads the local `scheduledDate` state, not
+                `entry`, so the link tracks the date picker below immediately. */}
+            {calendarUrl && (
+              <a href={calendarUrl} target="_blank" rel="noreferrer" className={deepLinkButtonClass}>
+                Add to Google Calendar ↗
+              </a>
+            )}
+          </div>
         </div>
 
         {(place.rating != null || (place.googleTypes && place.googleTypes.length > 0)) && (
@@ -817,27 +836,6 @@ export function PlaceDetailPanel({
               className="text-sm text-category-transit hover:underline"
             >
               Visit website ↗
-            </a>
-          )}
-          <a
-            href={placeMapsUrl(place)}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sm text-category-transit hover:underline"
-          >
-            Open in Google Maps ↗
-          </a>
-          {/* Null until the item has a date — an unscheduled place has no
-              event to create. Reads the local `scheduledDate` state, not
-              `entry`, so the link tracks the date picker below immediately. */}
-          {calendarUrl && (
-            <a
-              href={calendarUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-category-transit hover:underline"
-            >
-              Add to Google Calendar ↗
             </a>
           )}
           {place.googlePlaceId && (
@@ -1221,29 +1219,23 @@ export function BookingDetailPanel({
               <p className="text-sm text-text-secondary">{booking.address || place?.address}</p>
             )}
           </button>
-          {/* Null for a booking with neither its own coordinates nor a linked
-              place — a flight with no address has nothing to point at. */}
-          {mapsUrl && (
-            <a
-              href={mapsUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 inline-block text-sm text-category-transit hover:underline"
-            >
-              Open in Google Maps ↗
-            </a>
-          )}
-          {/* Null until the booking has a start time. Built from the schedule
-              state below rather than `booking`, so it follows an unsaved edit. */}
-          {calendarUrl && (
-            <a
-              href={calendarUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="ml-3 mt-1 inline-block text-sm text-category-transit hover:underline"
-            >
-              Add to Google Calendar ↗
-            </a>
+          {(mapsUrl || calendarUrl) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {/* Null for a booking with neither its own coordinates nor a linked
+                  place — a flight with no address has nothing to point at. */}
+              {mapsUrl && (
+                <a href={mapsUrl} target="_blank" rel="noreferrer" className={deepLinkButtonClass}>
+                  Open in Google Maps ↗
+                </a>
+              )}
+              {/* Null until the booking has a start time. Built from the schedule
+                  state below rather than `booking`, so it follows an unsaved edit. */}
+              {calendarUrl && (
+                <a href={calendarUrl} target="_blank" rel="noreferrer" className={deepLinkButtonClass}>
+                  Add to Google Calendar ↗
+                </a>
+              )}
+            </div>
           )}
         </div>
 
