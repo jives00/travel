@@ -46,6 +46,10 @@ export function createTripsEndpoints(request: RequestFn) {
     create: (body: CreateTripBody) => request<Trip>("/api/trips", { method: "POST", body }),
     update: (id: number, body: UpdateTripBody) =>
       request<Trip>(`/api/trips/${id}`, { method: "PATCH", body }),
+    /** Zip of one KML per category, for manual import into Google My Maps —
+     * My Maps has no write API, so an automatic push is not possible. */
+    exportKml: (id: number) =>
+      request<Blob>(`/api/trips/${id}/export/kml`, { responseType: "blob" }),
     archive: (id: number) => request<void>(`/api/trips/${id}/archive`, { method: "POST" }),
     restore: (id: number) => request<void>(`/api/trips/${id}/restore`, { method: "POST" }),
     setPrimary: (id: number) => request<Trip>(`/api/trips/${id}/primary`, { method: "POST" }),

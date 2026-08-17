@@ -16,6 +16,8 @@ export interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
+  /** "blob" for binary downloads (the KML export zip); JSON otherwise. */
+  responseType?: "json" | "blob";
 }
 
 const NO_RETRY_PATHS = new Set(["/api/auth/login", "/api/auth/refresh", "/api/auth/session"]);
@@ -84,20 +86,21 @@ export function createApiClient(config: ApiClientConfig) {
         credentials: "include",
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       });
-      return handleResponse<T>(retryRes, path);
+      return handleResponse<T>(retryRes, path, options.responseType);
     }
 
-    return handleResponse<T>(res, path);
+    return handleResponse<T>(res, path, options.responseType);
   }
 
   return { request: rawRequest };
 }
 
-async function handleResponse<T>(res: Response, path: string): Promise<T> {
+async function handleResponse<T>(res: Response, path: string, responseType?: "json" | "blob"): Promise<T> {
   if (!res.ok) {
     const message = await res.text().catch(() => res.statusText);
     throw new ApiError(res.status, path, message || res.statusText);
   }
   if (res.status === 204) return undefined as T;
+  if (responseType === "blob") return res.blob() as Promise<T>;
   return res.json() as Promise<T>;
 }

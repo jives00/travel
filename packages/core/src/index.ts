@@ -10,3 +10,6 @@ export * from "./fx";
 export * from "./format";
 export * from "./shareItinerary";
 export * from "./googleMaps";
+export * from "./kml";
+export * from "./zip";
+export * from "./exportGrouping";

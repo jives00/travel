@@ -194,6 +194,87 @@ function ShareModal({ text, onClose }: { text: string; onClose: () => void }) {
   );
 }
 
+/** Export the trip's mapped places as one KML per category, zipped.
+ *
+ * Google My Maps has no write API (the Maps Engine API that allowed
+ * programmatic edits was retired in 2015), and this app is Tailscale-only so
+ * Google could not fetch a hosted KML even if it did — a manual import is the
+ * only path, hence the instructions rather than a one-click sync. */
+function ExportMapModal({ tripId, tripName, onClose }: { tripId: number; tripName: string; onClose: () => void }) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function download() {
+    setDownloading(true);
+    setError(null);
+    try {
+      const blob = await travelApi.trips.exportKml(tripId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${tripName.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-") || "trip"}-my-maps.zip`;
+      a.click();
+      // Revoked on the next tick, not immediately — Firefox cancels an
+      // in-flight download if the object URL dies in the same task.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch {
+      setError("Export failed — this trip may have no mapped places yet.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h2 className="mb-1 text-lg font-semibold text-text-primary">Export to Google My Maps</h2>
+      <p className="mb-3 text-sm text-text-secondary">
+        Downloads a .zip with one KML file per city, each holding that city&rsquo;s pin, its scheduled
+        places, and its bookings — hotels, reservations and the rest. My Maps has no API, so the import
+        is manual — but each file lands as its own layer you can toggle and recolor. Pins stay colored
+        by category inside every layer.
+      </p>
+      <ol className="mb-4 list-decimal space-y-1 pl-5 text-sm text-text-secondary">
+        <li>Download and unzip the file.</li>
+        <li>
+          Open{" "}
+          <a
+            href="https://www.google.com/maps/d/"
+            target="_blank"
+            rel="noreferrer"
+            className="text-category-transit underline"
+          >
+            Google My Maps
+          </a>{" "}
+          and create a new map.
+        </li>
+        <li>On each layer, click Import and pick one of the .kml files (add a layer per file — max 10).</li>
+        <li>
+          Places you never scheduled onto a day arrive in an &ldquo;Unscheduled&rdquo; file rather than
+          being guessed into a city.
+        </li>
+        <li>
+          Want the exact app colors? My Maps can&rsquo;t take them from the file, but each layer&rsquo;s
+          &ldquo;Group places by&rdquo; menu offers the Category column &mdash; pick it and set the
+          colors once.
+        </li>
+      </ol>
+      {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={download}
+          disabled={downloading}
+          className="rounded bg-category-transit px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {downloading ? "Preparing…" : "Download .zip"}
+        </button>
+        <button onClick={onClose} className="text-sm text-text-secondary">
+          Close
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function TripDetail({ tripId }: { tripId: number }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -221,6 +302,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const [savingBackdrop, setSavingBackdrop] = useState(false);
   const [editingTrip, setEditingTrip] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [exportingMap, setExportingMap] = useState(false);
   const [hoveredPlaceId, setHoveredPlaceId] = useState<number | null>(null);
   const [activeLegId, setActiveLegId] = useState<number | null>(null);
   // Starts empty (matches SSR) and is filled from localStorage after mount,
@@ -388,6 +470,16 @@ export function TripDetail({ tripId }: { tripId: number }) {
               >
                 Share
               </button>
+              <button
+                onClick={() => setExportingMap(true)}
+                title="Export places to Google My Maps"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 px-4 py-2 text-sm font-semibold text-text-primary shadow hover:bg-white"
+              >
+                <span className="material-symbols-outlined text-base" aria-hidden="true">
+                  map
+                </span>
+                Export Map
+              </button>
               <Link
                 href={`/trips/${tripId}/budget`}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-category-transit px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90"
@@ -443,6 +535,10 @@ export function TripDetail({ tripId }: { tripId: number }) {
           })}
           onClose={() => setSharing(false)}
         />
+      )}
+
+      {exportingMap && (
+        <ExportMapModal tripId={tripId} tripName={trip.name} onClose={() => setExportingMap(false)} />
       )}
 
       {editingTrip && (
