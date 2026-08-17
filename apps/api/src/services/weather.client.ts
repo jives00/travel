@@ -45,7 +45,9 @@ function conditionFromWmoCode(code: number, precipProbability: number | null): s
 }
 
 interface GeocodeResult {
-  results?: { latitude: number; longitude: number; name: string }[];
+  // Open-Meteo returns an IANA `timezone` on every geocoding hit, so the app
+  // needs no separate timezone API (and no key) to resolve a city's zone.
+  results?: { latitude: number; longitude: number; name: string; timezone?: string }[];
 }
 
 interface ForecastResponse {
@@ -60,14 +62,17 @@ interface ForecastResponse {
 
 /** Resolves a free-text city (or country) name to coordinates via Open-Meteo's
  * free geocoding endpoint — no API key required. Also used to lazily backfill
- * legs.lat/lng for the /map overview (see map.routes.ts). */
-export async function geocodeCity(name: string): Promise<{ lat: number; lng: number; name: string } | null> {
+ * legs.lat/lng for the /map overview (see map.routes.ts) and legs.timezone for
+ * calendar export (see trips.routes.ts). */
+export async function geocodeCity(
+  name: string,
+): Promise<{ lat: number; lng: number; name: string; timezone: string | null } | null> {
   const geoRes = await fetch(`${GEOCODE_BASE}?name=${encodeURIComponent(name)}&count=1`);
   if (!geoRes.ok) return null;
   const geo = (await geoRes.json()) as GeocodeResult;
   const match = geo.results?.[0];
   if (!match) return null;
-  return { lat: match.latitude, lng: match.longitude, name: match.name };
+  return { lat: match.latitude, lng: match.longitude, name: match.name, timezone: match.timezone ?? null };
 }
 
 export async function getCityForecast(city: string): Promise<CityForecast | null> {

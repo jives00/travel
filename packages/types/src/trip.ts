@@ -14,6 +14,10 @@ export const Leg = z.object({
   dayCount: z.number().int().nullable(), // used when dates absent (dreaming trips)
   lodgingPlaceId: z.number().int().nullable(),
   currency: z.string().length(3).nullable(),
+  // IANA zone id for the leg's city, e.g. "Europe/Madrid" — resolved from the
+  // city name, not user-entered. Null until it's been looked up (legs created
+  // before migration 032 backfill on first read).
+  timezone: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

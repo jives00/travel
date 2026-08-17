@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { CreateLegBody, ReorderLegsBody, UpdateLegBody } from "@travel/types";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
+import { geocodeCity } from "../services/weather.client";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -10,10 +11,19 @@ function userId(request: FastifyRequest): number {
 const LEG_SELECT = `
   SELECT id, trip_id AS tripId, sort_order AS sortOrder, city,
          start_date AS startDate, end_date AS endDate, day_count AS dayCount,
-         lodging_place_id AS lodgingPlaceId, currency,
+         lodging_place_id AS lodgingPlaceId, currency, timezone,
          created_at AS createdAt, updated_at AS updatedAt
   FROM legs
 `;
+
+/** A leg's zone follows its city, so it's resolved whenever the city is
+ * written rather than asked of the user. Never fatal: a geocode miss or an
+ * Open-Meteo outage leaves the column null, and the read path retries the
+ * lookup later (see backfillLegTimezones in trips.routes.ts). */
+async function timezoneForCity(city: string): Promise<string | null> {
+  const geo = await geocodeCity(city).catch(() => null);
+  return geo?.timezone ?? null;
+}
 
 async function assertOwnsTrip(tripId: string | number, uid: number): Promise<boolean> {
   const [rows] = await getPool().query("SELECT id FROM trips WHERE id = ? AND user_id = ?", [tripId, uid]);
@@ -37,8 +47,8 @@ export async function legsRoutes(app: FastifyInstance): Promise<void> {
     )) as [{ maxOrder: number }[], unknown];
 
     const [result] = await getPool().query(
-      `INSERT INTO legs (trip_id, sort_order, city, start_date, end_date, day_count, lodging_place_id, currency)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO legs (trip_id, sort_order, city, start_date, end_date, day_count, lodging_place_id, currency, timezone)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         request.params.tripId,
         maxOrder + 1,
@@ -48,6 +58,7 @@ export async function legsRoutes(app: FastifyInstance): Promise<void> {
         body.dayCount ?? null,
         body.lodgingPlaceId ?? null,
         body.currency ?? null,
+        await timezoneForCity(body.city),
       ],
     );
     const insertId = (result as { insertId: number }).insertId;
@@ -82,6 +93,14 @@ export async function legsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
       if (fields.length === 0) return reply.code(400).send({ error: "no fields to update" });
+
+      // Renaming the city moves the leg somewhere else, so its zone is stale.
+      // Written even when the lookup fails — a null is better than a zone that
+      // belongs to the previous city.
+      if (body.city !== undefined) {
+        fields.push("timezone = ?");
+        params.push(await timezoneForCity(body.city));
+      }
       params.push(request.params.legId, request.params.tripId);
       await getPool().query(`UPDATE legs SET ${fields.join(", ")} WHERE id = ? AND trip_id = ?`, params);
 

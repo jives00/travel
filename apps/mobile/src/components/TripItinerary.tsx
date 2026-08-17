@@ -17,6 +17,9 @@ import {
   compareItineraryCategories,
   placeMapsUrl,
   bookingMapsUrl,
+  bookingCalendarUrl,
+  itineraryCalendarUrl,
+  resolveTimezone,
 } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
@@ -131,6 +134,21 @@ function MapsButton({ url }: { url: string }) {
   );
 }
 
+/** Opens Google Calendar's own new-event form with the fields prefilled — the
+ * user still saves it there, and nothing syncs back. See googleCalendarUrl in
+ * @travel/core for why there's no timezone attached. */
+function CalendarButton({ url }: { url: string }) {
+  return (
+    <Pressable
+      onPress={() => Linking.openURL(url)}
+      accessibilityLabel="Add to Google Calendar"
+      className="h-10 w-10 items-center justify-center rounded border border-gridline bg-surface dark:border-gridline-dark dark:bg-surface-dark"
+    >
+      <Ionicons name="calendar-outline" size={18} color="#4285f4" />
+    </Pressable>
+  );
+}
+
 function combineDateTime(date: string, time: string): string | undefined {
   if (!date.trim()) return undefined;
   return `${date.trim()}T${time.trim() || "00:00"}:00`;
@@ -202,12 +220,16 @@ function PlaceDetailFields({
   entry,
   place,
   legs,
+  homeTimezone,
   onClose,
 }: {
   tripId: number;
   entry: Entry;
   place: Place | undefined;
   legs: Leg[];
+  // Zone for anything with no leg to inherit one from; null means the viewing
+  // calendar's own zone, same as before legs carried zones.
+  homeTimezone: string | null;
   onClose: () => void;
 }) {
   const update = useUpdatePlace();
@@ -288,6 +310,14 @@ function PlaceDetailFields({
     onClose();
   }
 
+  const calendarUrl = itineraryCalendarUrl(
+    { title: place.name, scheduledDate: scheduledDate.trim() || null, time: entry.time },
+    {
+      place,
+      timezone: resolveTimezone({ legs, homeTimezone }, { legId, date: scheduledDate.trim() || null }),
+    },
+  );
+
   const categoryLabel = place.primaryTag ? (PLACE_TAGS.find((t) => t.key === place.primaryTag)?.label ?? place.primaryTag) : "Choose a category…";
   const cityLabel = legId != null ? (legs.find((l) => l.id === legId)?.city ?? "No city") : "No city";
 
@@ -300,6 +330,9 @@ function PlaceDetailFields({
           <View className="flex-row items-center gap-2">
             <Button title="Save" onPress={saveSchedule} />
             <MapsButton url={placeMapsUrl(place)} />
+            {/* Absent until the item has a date, and built from the picker's
+                state so it follows a date you just chose. */}
+            {calendarUrl && <CalendarButton url={calendarUrl} />}
           </View>
           <View className="flex-row items-center gap-2">
             <Pressable
@@ -454,6 +487,7 @@ function BookingEditFields({
   tripId,
   booking,
   legs,
+  homeTimezone,
   placeOptions,
   placeById,
   onClose,
@@ -461,6 +495,7 @@ function BookingEditFields({
   tripId: number;
   booking: Booking | undefined;
   legs: Leg[];
+  homeTimezone: string | null;
   placeOptions: { id: number; name: string }[];
   // Needed for coordinates, which placeOptions (id/name only) doesn't carry —
   // a booking with no address of its own falls back to its linked place.
@@ -492,6 +527,25 @@ function BookingEditFields({
   // A hotel never links to a place, so its own address is the only source.
   const linkedPlace = type !== "hotel" && placeId != null ? placeById.get(placeId) : undefined;
   const mapsUrl = bookingMapsUrl({ title, address, lat, lng }, linkedPlace);
+  const calendarUrl = booking
+    ? bookingCalendarUrl(
+        {
+          ...booking,
+          type,
+          title,
+          address: address || null,
+          confirmationCode: confirmationCode.trim() || null,
+          flightNumber: type === "flight" ? flightNumber.trim() || null : null,
+          notes: notes.trim() || null,
+          startAt: combineDateTime(startDate, startTime) ?? null,
+          endAt: combineDateTime(endDate, endTime) ?? null,
+        },
+        {
+          linkedPlace,
+          timezone: resolveTimezone({ legs, homeTimezone }, { legId, date: startDate || null }),
+        },
+      )
+    : null;
 
   if (!booking) {
     return (
@@ -544,6 +598,8 @@ function BookingEditFields({
                 follows an address you just picked. Absent when there's nothing to
                 point at — no coordinates and no linked place. */}
             {mapsUrl && <MapsButton url={mapsUrl} />}
+            {/* Same live-state treatment; absent for an unscheduled booking. */}
+            {calendarUrl && <CalendarButton url={calendarUrl} />}
           </View>
           <Button variant="danger" title="Delete" onPress={remove} />
         </View>
@@ -1104,6 +1160,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
           entry={editing}
           place={editing.placeId != null ? placeById.get(editing.placeId) : undefined}
           legs={legs}
+          homeTimezone={settings?.homeTimezone ?? null}
           onClose={() => setEditing(null)}
         />
       ) : editing && editing.kind === "booking" ? (
@@ -1111,6 +1168,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
           tripId={tripId}
           booking={bookings?.find((b) => b.id === editing.bookingId)}
           legs={legs}
+          homeTimezone={settings?.homeTimezone ?? null}
           placeOptions={placeOptions}
           placeById={placeById}
           onClose={() => setEditing(null)}

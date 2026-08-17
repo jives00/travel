@@ -3,7 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Booking, Leg, Place, PlaceTag } from "@travel/types";
-import { BOOKING_TYPES, PLACE_TAGS, enumLabel, placeMapsUrl, bookingMapsUrl } from "@travel/core";
+import {
+  BOOKING_TYPES,
+  PLACE_TAGS,
+  bookingCalendarUrl,
+  bookingMapsUrl,
+  enumLabel,
+  itineraryCalendarUrl,
+  placeMapsUrl,
+  resolveTimezone,
+  type TimezoneSource,
+} from "@travel/core";
 import { travelApi } from "@/lib/api";
 import {
   BookingFields,
@@ -542,12 +552,14 @@ export function PlaceDetailPanel({
   entry,
   place,
   legOptions,
+  tzSource,
   onClose,
 }: {
   tripId: number;
   entry: Entry;
   place: Place | undefined;
   legOptions: LegOption[];
+  tzSource: TimezoneSource;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -565,6 +577,17 @@ export function PlaceDetailPanel({
   const [scheduledDate, setScheduledDate] = useState(entry.scheduledDate ?? "");
   const [isPrivate, setIsPrivate] = useState(entry.isPrivate);
   const [savingSchedule, setSavingSchedule] = useState(false);
+
+  const calendarUrl = itineraryCalendarUrl(
+    { title: place?.name ?? entry.title, scheduledDate: scheduledDate || null, time: entry.time },
+    {
+      place,
+      timezone: resolveTimezone(tzSource, {
+        legId: legId ? Number(legId) : null,
+        date: scheduledDate || null,
+      }),
+    },
+  );
   const [primaryTag, setPrimaryTagState] = useState<PlaceTag | "">(place?.primaryTag ?? "");
   const [savingPrimaryTag, setSavingPrimaryTag] = useState(false);
   const [photoPicker, setPhotoPicker] = useState<{ loading: boolean; photos: string[] } | null>(null);
@@ -804,6 +827,19 @@ export function PlaceDetailPanel({
           >
             Open in Google Maps ↗
           </a>
+          {/* Null until the item has a date — an unscheduled place has no
+              event to create. Reads the local `scheduledDate` state, not
+              `entry`, so the link tracks the date picker below immediately. */}
+          {calendarUrl && (
+            <a
+              href={calendarUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-category-transit hover:underline"
+            >
+              Add to Google Calendar ↗
+            </a>
+          )}
           {place.googlePlaceId && (
             <button
               onClick={refresh}
@@ -987,6 +1023,7 @@ export function BookingDetailPanel({
   place,
   legOptions,
   placeOptions,
+  tzSource,
   onClose,
 }: {
   tripId: number;
@@ -994,6 +1031,7 @@ export function BookingDetailPanel({
   place: Place | undefined;
   legOptions: LegOption[];
   placeOptions: { id: number; name: string }[];
+  tzSource: TimezoneSource;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -1029,6 +1067,18 @@ export function BookingDetailPanel({
     return t === "00:00" ? "" : t;
   });
   const [savingSchedule, setSavingSchedule] = useState(false);
+
+  const calendarUrl = bookingCalendarUrl(
+    {
+      ...booking,
+      startAt: startDate ? `${startDate}T${startTime || "00:00"}` : null,
+      endAt: endDate ? `${endDate}T${endTime || "00:00"}` : null,
+    },
+    {
+      linkedPlace: place,
+      timezone: resolveTimezone(tzSource, { legId: legId ? Number(legId) : null, date: startDate || null }),
+    },
+  );
 
   // Every caller below clears with `null`, never `undefined`: an `undefined`
   // value is dropped by JSON.stringify, so the field would either silently keep
@@ -1181,6 +1231,18 @@ export function BookingDetailPanel({
               className="mt-1 inline-block text-sm text-category-transit hover:underline"
             >
               Open in Google Maps ↗
+            </a>
+          )}
+          {/* Null until the booking has a start time. Built from the schedule
+              state below rather than `booking`, so it follows an unsaved edit. */}
+          {calendarUrl && (
+            <a
+              href={calendarUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-3 mt-1 inline-block text-sm text-category-transit hover:underline"
+            >
+              Add to Google Calendar ↗
             </a>
           )}
         </div>

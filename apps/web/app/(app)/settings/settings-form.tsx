@@ -11,6 +11,7 @@ export function SettingsForm() {
   const { theme, setTheme } = useTheme();
   const [homeCurrency, setHomeCurrency] = useState("");
   const [bufferM, setBufferM] = useState("");
+  const [homeTimezone, setHomeTimezone] = useState("");
 
   async function updateUnit(distanceUnit: "km" | "mi") {
     await travelApi.settings.update({ distanceUnit });
@@ -32,6 +33,12 @@ export function SettingsForm() {
     await travelApi.settings.update({ homeCurrency: homeCurrency.trim().toUpperCase() });
     await queryClient.invalidateQueries({ queryKey: ["settings"] });
     setHomeCurrency("");
+  }
+
+  async function saveHomeTimezone(value: string | null) {
+    await travelApi.settings.update({ homeTimezone: value });
+    await queryClient.invalidateQueries({ queryKey: ["settings"] });
+    setHomeTimezone("");
   }
 
   async function saveBuffer() {
@@ -137,6 +144,47 @@ export function SettingsForm() {
           <button onClick={saveHomeCurrency} className="rounded bg-category-transit px-3 py-1 text-sm text-white">
             Save
           </button>
+        </div>
+      </section>
+
+      <section className="rounded border border-gridline bg-surface p-4">
+        <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Home timezone</h2>
+        <p className="mb-1 text-sm text-text-secondary">
+          Used by &ldquo;Add to Google Calendar&rdquo; for anything not tied to a city — trip cities carry their own
+          zone. Leave it unset to let your calendar decide.
+        </p>
+        <p className="mb-1 text-sm text-text-secondary">Currently {settings.homeTimezone ?? "not set"}</p>
+        <div className="flex flex-wrap gap-2">
+          <input
+            className="w-56 rounded border border-gridline bg-transparent p-1 text-text-primary"
+            placeholder="e.g. America/Chicago"
+            maxLength={64}
+            value={homeTimezone}
+            onChange={(e) => setHomeTimezone(e.target.value)}
+          />
+          <button
+            onClick={() => saveHomeTimezone(homeTimezone.trim())}
+            disabled={!homeTimezone.trim()}
+            className="rounded bg-category-transit px-3 py-1 text-sm text-white disabled:opacity-50"
+          >
+            Save
+          </button>
+          {/* The browser already knows the answer, so typing an IANA id by hand
+              should never be the only way in. */}
+          <button
+            onClick={() => saveHomeTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)}
+            className="rounded border border-gridline px-3 py-1 text-sm text-text-secondary"
+          >
+            Use this device&rsquo;s
+          </button>
+          {settings.homeTimezone && (
+            <button
+              onClick={() => saveHomeTimezone(null)}
+              className="rounded border border-gridline px-3 py-1 text-sm text-text-secondary"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </section>
 

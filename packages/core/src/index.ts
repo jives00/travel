@@ -13,3 +13,4 @@ export * from "./googleMaps";
 export * from "./kml";
 export * from "./zip";
 export * from "./exportGrouping";
+export * from "./googleCalendar";

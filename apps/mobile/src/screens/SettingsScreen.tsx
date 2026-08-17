@@ -24,6 +24,16 @@ export function SettingsScreen() {
   const { theme, setTheme } = useTheme();
   const [currency, setCurrency] = useState("");
   const [buffer, setBuffer] = useState("");
+  const [timezone, setTimezone] = useState("");
+
+  // Hermes ships Intl, but a missing/odd platform ICU would make this throw
+  // rather than return a zone — and a settings screen is not worth crashing.
+  let deviceTimezone: string | null = null;
+  try {
+    deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    deviceTimezone = null;
+  }
 
   return (
     <Screen scroll>
@@ -107,6 +117,41 @@ export function SettingsScreen() {
                   setCurrency("");
                 }}
               />
+            </View>
+          </Section>
+
+          <Section title="Home timezone">
+            <Text className="mb-1 text-sm text-text-secondary dark:text-text-secondary-dark">
+              Used by Add to Google Calendar for anything not tied to a trip city. Currently{" "}
+              {settings.homeTimezone ?? "not set"}
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+              <TextField
+                className="w-44"
+                autoCapitalize="none"
+                maxLength={64}
+                placeholder="America/Chicago"
+                value={timezone}
+                onChangeText={setTimezone}
+              />
+              <Button
+                title="Save"
+                onPress={() => {
+                  const v = timezone.trim();
+                  if (v) update.mutate({ homeTimezone: v });
+                  setTimezone("");
+                }}
+              />
+              {deviceTimezone && (
+                <Button
+                  variant="secondary"
+                  title="Use this phone's"
+                  onPress={() => update.mutate({ homeTimezone: deviceTimezone })}
+                />
+              )}
+              {settings.homeTimezone && (
+                <Button variant="secondary" title="Clear" onPress={() => update.mutate({ homeTimezone: null })} />
+              )}
             </View>
           </Section>
 

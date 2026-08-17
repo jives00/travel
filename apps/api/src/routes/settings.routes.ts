@@ -10,7 +10,7 @@ function userId(request: FastifyRequest): number {
 const SELECT = `
   SELECT user_id AS userId, home_currency AS homeCurrency, distance_unit AS distanceUnit,
          default_travel_mode AS defaultTravelMode, default_buffer_m AS defaultBufferM,
-         show_private_items AS showPrivateItems,
+         show_private_items AS showPrivateItems, home_timezone AS homeTimezone,
          updated_at AS updatedAt
   FROM settings
 `;
@@ -50,6 +50,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       ["defaultTravelMode", "default_travel_mode"],
       ["defaultBufferM", "default_buffer_m"],
       ["showPrivateItems", "show_private_items"],
+      ["homeTimezone", "home_timezone"],
     ] as const) {
       if (body[key] !== undefined) {
         fields.push(`${column} = ?`);

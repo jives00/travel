@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, Place } from "@travel/types";
-import { todayDateString } from "@travel/core";
+import { todayDateString, type TimezoneSource } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
 import { useTheme } from "@/lib/theme-context";
@@ -152,6 +152,10 @@ export function TripItinerary({
   });
   const placesById = new Map<number, Place>((tripPlaces ?? []).map((p) => [p.id, p]));
   const legOptions: LegOption[] = sortedLegs.map((l) => ({ id: l.id, city: l.city }));
+
+  // Where calendar links get their timezone: each leg carries its city's zone,
+  // and the home setting covers anything with no leg to inherit from.
+  const tzSource: TimezoneSource = { legs: sortedLegs, homeTimezone: settings?.homeTimezone ?? null };
   const placeOptions = (tripPlaces ?? []).map((p) => ({ id: p.id, name: p.name }));
 
   const hotelBookingByLegId = new Map<number, Booking>();
@@ -290,6 +294,7 @@ export function TripItinerary({
           entry={entry}
           place={entry.item?.placeId ? placesById.get(entry.item.placeId) : undefined}
           legOptions={legOptions}
+          tzSource={tzSource}
           onClose={() => setExpandedKey(null)}
         />
       );
@@ -303,6 +308,7 @@ export function TripItinerary({
           place={entry.booking?.placeId != null ? placesById.get(entry.booking.placeId) : undefined}
           legOptions={legOptions}
           placeOptions={placeOptions}
+          tzSource={tzSource}
           onClose={() => setExpandedKey(null)}
         />
       );

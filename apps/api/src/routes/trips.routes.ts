@@ -4,7 +4,7 @@ import { computeTripStatus } from "@travel/core";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { pingCityPhotoDownload, searchCityPhoto, searchCityPhotoOptions } from "../services/unsplash.client";
-import { getCityForecast, type CityForecast } from "../services/weather.client";
+import { geocodeCity, getCityForecast, type CityForecast } from "../services/weather.client";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -20,6 +20,7 @@ interface LegRow {
   dayCount: number | null;
   lodgingPlaceId: number | null;
   currency: string | null;
+  timezone: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -52,14 +53,35 @@ const TRIP_SELECT = `
 const LEG_SELECT = `
   SELECT id, trip_id AS tripId, sort_order AS sortOrder, city,
          start_date AS startDate, end_date AS endDate, day_count AS dayCount,
-         lodging_place_id AS lodgingPlaceId, currency,
+         lodging_place_id AS lodgingPlaceId, currency, timezone,
          created_at AS createdAt, updated_at AS updatedAt
   FROM legs
 `;
 
+/** Self-healing cache, same shape as the legs.lat/lng backfill in
+ * map.routes.ts: legs written before migration 032 have no zone, and legs.
+ * routes only resolves one at write time. Lookups run in parallel so a trip
+ * with unbackfilled legs costs one round trip, once — after that the column is
+ * set and this is a no-op. A failed lookup stays null and is retried next read.
+ */
+async function backfillLegTimezones(legs: LegRow[]): Promise<void> {
+  const missing = legs.filter((leg) => leg.timezone == null);
+  if (missing.length === 0) return;
+  await Promise.all(
+    missing.map(async (leg) => {
+      const geo = await geocodeCity(leg.city).catch(() => null);
+      if (!geo?.timezone) return;
+      leg.timezone = geo.timezone;
+      await getPool().query("UPDATE legs SET timezone = ? WHERE id = ?", [geo.timezone, leg.id]);
+    }),
+  );
+}
+
 async function legsForTrip(tripId: number): Promise<LegRow[]> {
   const [rows] = await getPool().query(`${LEG_SELECT} WHERE trip_id = ? ORDER BY sort_order`, [tripId]);
-  return rows as LegRow[];
+  const legs = rows as LegRow[];
+  await backfillLegTimezones(legs);
+  return legs;
 }
 
 async function withLegsAndStatus(trip: TripRow) {
