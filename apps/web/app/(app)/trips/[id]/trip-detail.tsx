@@ -5,42 +5,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Booking, Leg, Trip } from "@travel/types";
-import { buildShareItineraryText } from "@travel/core";
+import type { Booking, Trip } from "@travel/types";
+import { buildShareItineraryText, computeCountdown, pluralCity, todayUtcMidnight } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { useHideDoneLists } from "@/lib/listPrefs";
 import { Modal, TripItinerary } from "./trip-itinerary";
 import { TripWeather } from "./trip-weather";
 import { TripMap } from "./trip-map";
-
-// `d` may arrive as a plain "YYYY-MM-DD" or a full ISO datetime (MySQL DATE
-// columns come back as JS Date objects and serialize as "2026-09-01T00:00:00.000Z")
-// — normalize to the date portion before reparsing, or a double time suffix
-// produces an invalid Date.
-function toDateOnlyString(d: string): string {
-  return d.length > 10 ? d.slice(0, 10) : d;
-}
-
-function dateOnly(d: string): Date {
-  return new Date(`${toDateOnlyString(d)}T00:00:00Z`);
-}
-
-function formatDate(d: string): string {
-  return dateOnly(d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
-}
-
-function formatDateRange(start: string, end: string): string {
-  return `${formatDate(start)} – ${formatDate(end)}`;
-}
-
-function daysBetween(a: Date, b: Date): number {
-  return Math.round((b.getTime() - a.getTime()) / 86_400_000);
-}
-
-interface Countdown {
-  headline: string;
-  subline: string;
-}
 
 const COLLAPSED_LISTS_KEY = "travel:collapsedListIds";
 
@@ -56,66 +27,6 @@ function loadCollapsedListIds(): Set<number> {
 
 function saveCollapsedListIds(ids: Set<number>): void {
   window.localStorage.setItem(COLLAPSED_LISTS_KEY, JSON.stringify([...ids]));
-}
-
-// "Leg" is the internal/data-model term (matches the API and packages/types);
-// the UI calls it "city" throughout, per the user's rename request.
-function pluralCity(n: number): string {
-  return n === 1 ? "city" : "cities";
-}
-
-// The overall trip span — earliest date across dated cities *and* bookings
-// (so a pre-trip flight the day before the first city, or a post-trip flight
-// after the last, extends the range) through the latest such date, inclusive.
-// Used both for the hero countdown and the at-a-glance "Total days" stat, so
-// the two numbers never disagree. Returns null for a dreaming trip (no leg
-// has real dates yet) — that gate stays leg-based, matching how trip.status
-// itself is computed, even though the range widening also considers bookings.
-function tripDateSpan(trip: Trip, bookings: Booking[]): { earliest: string; latest: string; totalDays: number } | null {
-  const datedLegs = trip.legs.filter((l) => l.startDate && l.endDate);
-  if (datedLegs.length === 0) return null;
-  const legDates = datedLegs.flatMap((l) => [toDateOnlyString(l.startDate!), toDateOnlyString(l.endDate!)]);
-  const bookingDates = bookings
-    .flatMap((b) => [b.startAt, b.endAt])
-    .filter((d): d is string => !!d)
-    .map(toDateOnlyString);
-  const allDates = [...legDates, ...bookingDates];
-  const earliest = allDates.reduce((min, d) => (d < min ? d : min), allDates[0]);
-  const latest = allDates.reduce((max, d) => (d > max ? d : max), allDates[0]);
-  return { earliest, latest, totalDays: daysBetween(dateOnly(earliest), dateOnly(latest)) + 1 };
-}
-
-// Driven entirely by the actual dates vs. today — not by trip.status. A
-// manual status override (e.g. pinning "active" early) still affects grouping
-// and nudges elsewhere, but the countdown must stay numerically sensible
-// regardless: a trip whose cities start in the future always gets a "days to
-// go" countdown, never a broken "Day -53 of N".
-function computeCountdown(trip: Trip, sortedLegs: Leg[], bookings: Booking[], today: Date): Countdown {
-  const span = tripDateSpan(trip, bookings);
-
-  if (!span) {
-    const totalDays = sortedLegs.reduce((sum, l) => sum + (l.dayCount ?? 1), 0);
-    return {
-      headline: "Still dreaming",
-      subline: `${totalDays} day(s) planned across ${sortedLegs.length} ${pluralCity(sortedLegs.length)} — no dates yet`,
-    };
-  }
-
-  const { earliest, latest, totalDays: total } = span;
-  const range = formatDateRange(earliest, latest);
-  const start = dateOnly(earliest);
-  const end = dateOnly(latest);
-
-  if (today < start) {
-    const n = daysBetween(today, start);
-    const headline = n === 0 ? "Starts today!" : n === 1 ? "1 day to go" : `${n} days to go`;
-    return { headline, subline: range };
-  }
-  if (today > end) {
-    return { headline: "Trip completed", subline: range };
-  }
-  const day = daysBetween(start, today) + 1;
-  return { headline: `Day ${day} of ${total}`, subline: range };
 }
 
 function HeroImage({
@@ -410,8 +321,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
 
   const sortedLegs = [...trip.legs].sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  const today = todayUtcMidnight();
 
   const countdown = computeCountdown(trip, sortedLegs, bookings ?? [], today);
   const cityChain = sortedLegs.map((l) => l.city).join(" → ");

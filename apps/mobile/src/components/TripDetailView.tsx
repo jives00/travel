@@ -6,7 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import type { Booking, Trip } from "@travel/types";
-import { computeCountdown, buildShareItineraryText } from "@travel/core";
+import { computeCountdown, buildShareItineraryText, todayUtcMidnight } from "@travel/core";
 import { travelApi } from "../lib/api";
 import { usePullToRefresh } from "../lib/usePullToRefresh";
 import {
@@ -86,8 +86,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   if (!trip) return null;
 
   const sortedLegs = [...trip.legs].sort((a, b) => a.sortOrder - b.sortOrder);
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  const today = todayUtcMidnight();
   const countdown = computeCountdown(trip, sortedLegs, bookings ?? [], today);
   const cityChain = sortedLegs.map((l) => l.city).join(" → ");
   const heroUri = trip.heroImageUrl ?? hero?.url ?? null;

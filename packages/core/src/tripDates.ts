@@ -26,6 +26,15 @@ export function todayDateString(): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Today as a UTC-midnight Date, derived from the *local* calendar date — the
+ * form every date in this app is stored and compared in ("YYYY-MM-DD" parsed at
+ * UTC midnight). Do NOT use `new Date()` + `setUTCHours(0,0,0,0)`: west of
+ * Greenwich that lands on tomorrow's UTC date all evening, so a countdown reads
+ * one day short from ~7pm local onward. */
+export function todayUtcMidnight(): Date {
+  return dateOnly(todayDateString());
+}
+
 // "Leg" is the internal/data-model term; the UI calls it "city".
 export function pluralCity(n: number): string {
   return n === 1 ? "city" : "cities";
