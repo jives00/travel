@@ -264,10 +264,11 @@ export function ListsView() {
                     dragItemId === item.id ? "opacity-40" : ""
                   }`}
                 >
-                  <label className="flex flex-1 items-center gap-2">
+                  <div className="flex flex-1 items-center gap-2">
                     <span className="cursor-grab select-none text-text-muted">⠿</span>
                     <input
                       type="checkbox"
+                      aria-label={`Mark "${item.text}" done`}
                       checked={item.done}
                       onChange={(e) => setItemDone(list.id, item.id, e.target.checked)}
                       className="h-5 w-5 accent-category-transit"
@@ -284,14 +285,14 @@ export function ListsView() {
                       </form>
                     ) : (
                       <span
-                        className={`cursor-text ${item.done ? "text-text-muted line-through" : ""}`}
+                        className={`flex-1 cursor-text ${item.done ? "text-text-muted line-through" : ""}`}
                         onClick={() => startEditItem(item.id, item.text)}
                         title="Click to edit"
                       >
                         {item.text}
                       </span>
                     )}
-                  </label>
+                  </div>
                   <button
                     onClick={() => removeItem(list.id, item.id)}
                     className="text-text-muted hover:text-status-critical"
