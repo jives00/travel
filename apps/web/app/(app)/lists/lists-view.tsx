@@ -5,9 +5,39 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { travelApi } from "@/lib/api";
 import { useHideDoneLists } from "@/lib/listPrefs";
 
+// Kept in step with the `duration-200` fade on a completing row.
+const FADE_MS = 200;
+
+/** Which side of a hovered row/card the pointer is on, for the drop indicator. */
+function isBeforeMidpoint(e: React.DragEvent<HTMLElement>, axis: "y" | "x") {
+  const rect = e.currentTarget.getBoundingClientRect();
+  return axis === "y"
+    ? e.clientY < rect.top + rect.height / 2
+    : e.clientX < rect.left + rect.width / 2;
+}
+
+/** Reorder `rows` to match `ids`, or leave them alone if the two disagree. */
+function applyOrder<T extends { id: number }>(rows: T[], ids: number[]): T[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const ordered = ids.map((id) => byId.get(id)).filter((row): row is T => row !== undefined);
+  return ordered.length === rows.length ? ordered : rows;
+}
+
+/** Move `draggedId` so it sits before/after `targetId` in `ids`. */
+function moveInto(ids: number[], draggedId: number, targetId: number, before: boolean) {
+  const rest = ids.filter((id) => id !== draggedId);
+  const targetIndex = rest.indexOf(targetId);
+  if (targetIndex === -1) return null;
+  const insertAt = before ? targetIndex : targetIndex + 1;
+  const reordered = [...rest.slice(0, insertAt), draggedId, ...rest.slice(insertAt)];
+  return reordered.every((id, i) => id === ids[i]) ? null : reordered;
+}
+
 export function ListsView() {
   const queryClient = useQueryClient();
-  const { data: lists } = useQuery(travelApi.queries.listsQuery());
+  const listsQuery = travelApi.queries.listsQuery();
+  const { data: lists } = useQuery(listsQuery);
+  type ListRow = NonNullable<typeof lists>[number];
   const { data: trips } = useQuery(travelApi.queries.tripsQuery());
   const [name, setName] = useState("");
   const [newListTripId, setNewListTripId] = useState("");
@@ -17,6 +47,14 @@ export function ListsView() {
   const [renameDraft, setRenameDraft] = useState("");
   const [dragItemId, setDragItemId] = useState<number | null>(null);
   const [dragListId, setDragListId] = useState<number | null>(null);
+  // Where the dragged row/card would land: the row it's hovering and which side
+  // of that row's midpoint the pointer is on. Drives the drop indicator line and
+  // the insertion index, so what you see is exactly what the drop does.
+  const [itemDropAt, setItemDropAt] = useState<{ itemId: number; before: boolean } | null>(null);
+  const [listDropAt, setListDropAt] = useState<{ listId: number; before: boolean } | null>(null);
+  // Checkbox state the server hasn't confirmed yet — the box ticks instantly and
+  // the row fades before the refetch removes it.
+  const [pendingDone, setPendingDone] = useState<Record<number, boolean>>({});
   const { hidesDone, toggleHideDone } = useHideDoneLists();
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editItemDraft, setEditItemDraft] = useState("");
@@ -56,8 +94,25 @@ export function ListsView() {
   }
 
   async function setItemDone(listId: number, itemId: number, done: boolean) {
-    await travelApi.lists.setItemDone(listId, itemId, done);
-    await invalidate();
+    setPendingDone((prev) => ({ ...prev, [itemId]: done }));
+    // While completed items are hidden, hold the row on screen long enough for
+    // the fade to play — otherwise a fast API round-trip yanks it mid-animation.
+    const fade = done && hidesDone(listId) ? new Promise((r) => setTimeout(r, FADE_MS)) : null;
+    try {
+      await Promise.all([
+        (async () => {
+          await travelApi.lists.setItemDone(listId, itemId, done);
+          await invalidate();
+        })(),
+        fade,
+      ]);
+    } finally {
+      setPendingDone((prev) => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+    }
   }
 
   async function removeItem(listId: number, itemId: number) {
@@ -106,32 +161,30 @@ export function ListsView() {
     await invalidate();
   }
 
-  async function dropItem(itemIds: number[], listId: number, targetItemId: number) {
+  async function dropItem(itemIds: number[], listId: number, targetItemId: number, before: boolean) {
     const draggedId = dragItemId;
     setDragItemId(null);
-    if (draggedId === null || draggedId === targetItemId) return;
-    const withoutDragged = itemIds.filter((id) => id !== draggedId);
-    const targetIndex = withoutDragged.indexOf(targetItemId);
-    const reordered = [
-      ...withoutDragged.slice(0, targetIndex),
-      draggedId,
-      ...withoutDragged.slice(targetIndex),
-    ];
+    setItemDropAt(null);
+    if (draggedId === null || !itemIds.includes(draggedId)) return;
+    const reordered = moveInto(itemIds, draggedId, targetItemId, before);
+    if (!reordered) return;
+    // Paint the new order now; the round-trip and refetch only confirm it. A
+    // failure falls back to whatever the refetch returns.
+    queryClient.setQueryData<ListRow[]>(listsQuery.queryKey, (prev) =>
+      prev?.map((l) => (l.id === listId ? { ...l, items: applyOrder(l.items, reordered) } : l)),
+    );
     await travelApi.lists.reorderItems(listId, reordered);
     await invalidate();
   }
 
-  async function dropList(listIds: number[], targetListId: number) {
+  async function dropList(listIds: number[], targetListId: number, before: boolean) {
     const draggedId = dragListId;
     setDragListId(null);
-    if (draggedId === null || draggedId === targetListId) return;
-    const withoutDragged = listIds.filter((id) => id !== draggedId);
-    const targetIndex = withoutDragged.indexOf(targetListId);
-    const reordered = [
-      ...withoutDragged.slice(0, targetIndex),
-      draggedId,
-      ...withoutDragged.slice(targetIndex),
-    ];
+    setListDropAt(null);
+    if (draggedId === null || !listIds.includes(draggedId)) return;
+    const reordered = moveInto(listIds, draggedId, targetListId, before);
+    if (!reordered) return;
+    queryClient.setQueryData<ListRow[]>(listsQuery.queryKey, (prev) => prev && applyOrder(prev, reordered));
     await travelApi.lists.reorderLists(reordered);
     await invalidate();
   }
@@ -169,24 +222,60 @@ export function ListsView() {
       <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {(lists ?? []).map((list) => {
           const hideDone = hidesDone(list.id);
-          const doneCount = list.items.filter((i) => i.done).length;
+          const isDone = (item: { id: number; done: boolean }) => pendingDone[item.id] ?? item.done;
+          const doneCount = list.items.filter(isDone).length;
           // Reordering still works off the full item order even when completed
           // items are hidden, so a drag between two visible rows can't drop the
-          // hidden ones out of the list.
-          const visibleItems = hideDone ? list.items.filter((i) => !i.done) : list.items;
+          // hidden ones out of the list. Items still awaiting confirmation stay
+          // rendered so they can fade out rather than vanish.
+          const visibleItems = hideDone
+            ? list.items.filter((i) => !isDone(i) || i.id in pendingDone)
+            : list.items;
+          const listDrop = listDropAt?.listId === list.id ? listDropAt : null;
           return (
           <li
             key={list.id}
             draggable
-            onDragStart={() => setDragListId(list.id)}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              dropList((lists ?? []).map((l) => l.id), list.id);
+            onDragStart={(e) => {
+              setDragListId(list.id);
+              e.dataTransfer.effectAllowed = "move";
+              // Firefox refuses to start a drag without payload on the transfer.
+              e.dataTransfer.setData("text/plain", `list:${list.id}`);
             }}
-            onDragEnd={() => setDragListId(null)}
-            className={`rounded border border-gridline bg-surface p-4 ${dragListId === list.id ? "opacity-40" : ""}`}
+            onDragOver={(e) => {
+              if (dragListId === null) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              const before = isBeforeMidpoint(e, "x");
+              setListDropAt((prev) =>
+                prev?.listId === list.id && prev.before === before ? prev : { listId: list.id, before },
+              );
+            }}
+            onDragLeave={(e) => {
+              // Crossing into a child still fires dragleave; ignore those or the
+              // indicator strobes as the pointer moves across the card.
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              setListDropAt((prev) => (prev?.listId === list.id ? null : prev));
+            }}
+            onDrop={(e) => {
+              if (dragListId === null) return;
+              e.preventDefault();
+              dropList((lists ?? []).map((l) => l.id), list.id, isBeforeMidpoint(e, "x"));
+            }}
+            onDragEnd={() => {
+              setDragListId(null);
+              setListDropAt(null);
+            }}
+            className={`relative rounded border border-gridline bg-surface p-4 ${dragListId === list.id ? "opacity-40" : ""}`}
           >
+            {listDrop && dragListId !== list.id && (
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute inset-y-0 w-1 rounded bg-category-transit ${
+                  listDrop.before ? "-left-2" : "-right-2"
+                }`}
+              />
+            )}
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex flex-1 items-center gap-2">
                 <span className="cursor-grab select-none text-text-muted" title="Drag to reorder">
@@ -248,28 +337,69 @@ export function ListsView() {
                 </option>
               ))}
             </select>
-            <ul className="mb-2 space-y-2">
-              {visibleItems.map((item) => (
+            {/* No gaps between rows: a `space-y` gutter is dead space that swallows
+                drops. Each row pads itself instead, so every pixel of the list
+                belongs to some row. */}
+            <ul className="mb-2">
+              {visibleItems.map((item) => {
+                const done = isDone(item);
+                const fadingOut = hideDone && done && item.id in pendingDone;
+                const itemDrop = itemDropAt?.itemId === item.id ? itemDropAt : null;
+                return (
                 <li
                   key={item.id}
                   draggable
-                  onDragStart={() => setDragItemId(item.id)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    dropItem(list.items.map((i) => i.id), list.id, item.id);
+                  onDragStart={(e) => {
+                    // Without this the parent card's own dragstart fires too and a
+                    // row drop would silently reorder the lists instead.
+                    e.stopPropagation();
+                    setDragItemId(item.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", `item:${item.id}`);
                   }}
-                  onDragEnd={() => setDragItemId(null)}
-                  className={`flex items-center justify-between text-base text-text-primary ${
-                    dragItemId === item.id ? "opacity-40" : ""
+                  onDragOver={(e) => {
+                    if (dragItemId === null || !list.items.some((i) => i.id === dragItemId)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = "move";
+                    const before = isBeforeMidpoint(e, "y");
+                    setItemDropAt((prev) =>
+                      prev?.itemId === item.id && prev.before === before ? prev : { itemId: item.id, before },
+                    );
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                    setItemDropAt((prev) => (prev?.itemId === item.id ? null : prev));
+                  }}
+                  onDrop={(e) => {
+                    if (dragItemId === null) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropItem(list.items.map((i) => i.id), list.id, item.id, isBeforeMidpoint(e, "y"));
+                  }}
+                  onDragEnd={(e) => {
+                    e.stopPropagation();
+                    setDragItemId(null);
+                    setItemDropAt(null);
+                  }}
+                  className={`relative flex items-center justify-between py-1 text-base text-text-primary transition-opacity duration-200 ${
+                    fadingOut ? "opacity-0" : dragItemId === item.id ? "opacity-40" : ""
                   }`}
                 >
+                  {itemDrop && dragItemId !== item.id && (
+                    <span
+                      aria-hidden
+                      className={`pointer-events-none absolute inset-x-0 h-0.5 rounded bg-category-transit ${
+                        itemDrop.before ? "top-0" : "bottom-0"
+                      }`}
+                    />
+                  )}
                   <div className="flex flex-1 items-center gap-2">
                     <span className="cursor-grab select-none text-text-muted">⠿</span>
                     <input
                       type="checkbox"
                       aria-label={`Mark "${item.text}" done`}
-                      checked={item.done}
+                      checked={done}
                       onChange={(e) => setItemDone(list.id, item.id, e.target.checked)}
                       className="h-5 w-5 accent-category-transit"
                     />
@@ -285,7 +415,7 @@ export function ListsView() {
                       </form>
                     ) : (
                       <span
-                        className={`flex-1 cursor-text ${item.done ? "text-text-muted line-through" : ""}`}
+                        className={`flex-1 cursor-text ${done ? "text-text-muted line-through" : ""}`}
                         onClick={() => startEditItem(item.id, item.text)}
                         title="Click to edit"
                       >
@@ -300,7 +430,8 @@ export function ListsView() {
                     ✕
                   </button>
                 </li>
-              ))}
+                );
+              })}
               {list.items.length === 0 && <p className="text-sm text-text-muted">No items yet.</p>}
               {list.items.length > 0 && visibleItems.length === 0 && (
                 <p className="text-sm text-text-muted">All {doneCount} items done.</p>
