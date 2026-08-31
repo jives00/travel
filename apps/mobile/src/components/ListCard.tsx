@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View, Text, Pressable, Alert } from "react-native";
-import NestableDraggableFlatList from "react-native-draggable-flatlist";
+import { NestableDraggableFlatList } from "react-native-draggable-flatlist";
 import type { ListItem, ListWithItems } from "@travel/types";
 import {
   useAddItem,
