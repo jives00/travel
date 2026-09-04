@@ -78,6 +78,7 @@ export function useScheduleItem(tripId: number) {
         activityText: body.activityText ?? null,
         isPrivate: body.isPrivate ?? false,
         completed: false,
+        completedAt: null,
         createdAt: now,
         updatedAt: now,
       };

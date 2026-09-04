@@ -14,6 +14,7 @@ import {
   formatDayHeading,
   type TripDay,
   itineraryCategoryLabel,
+  itineraryDisplayDate,
   compareItineraryCategories,
   placeMapsUrl,
   bookingMapsUrl,
@@ -25,6 +26,7 @@ import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
 import { useTheme } from "../lib/theme";
 import { useScheduleItem, useUnscheduleItem, useMoveItem } from "../lib/offlineMutations/itinerary";
+import { setShowCompleted, useShowCompletedOverride } from "../lib/showCompletedItinerary";
 import { useRemoveBooking, useUpdateBooking } from "../lib/offlineMutations/bookings";
 import { useUpdatePlace, useRemovePlace } from "../lib/offlineMutations/places";
 import { AutocompleteSearch } from "./AutocompleteSearch";
@@ -45,6 +47,11 @@ export interface Entry {
   subtitle: string;
   isPrivate: boolean;
   completed: boolean;
+  // The day a place/idea was checked off. Never feeds grouping or the category
+  // label — only the date shown on the row and the calendar's day placement, so
+  // checking something off records when it happened without moving it in the
+  // list. Bookings carry their own date on startAt, so this stays null there.
+  completedAt: string | null;
   itemId?: number; // itinerary item id (place/activity)
   bookingId?: number;
   placeId?: number;
@@ -70,6 +77,7 @@ function bookingEntry(b: Booking): Entry {
     subtitle: t?.label ?? b.type,
     isPrivate: false,
     completed: b.completed,
+    completedAt: null,
     bookingId: b.id,
     categoryLabel: itineraryCategoryLabel({ hasDate: scheduledDate != null, kind: "booking", bookingType: b.type }),
     mapPinGroup: mapPinGroupForBookingType(b.type) as MapPinGroup,
@@ -90,6 +98,7 @@ function itemEntry(i: ItineraryItem, placeById: Map<number, Place>): Entry {
     subtitle: isPlace ? (place?.primaryTag ? enumLabel(PLACE_TAGS, place.primaryTag) : "Place") : "Idea",
     isPrivate: i.isPrivate,
     completed: i.completed,
+    completedAt: i.completedAt,
     itemId: i.id,
     placeId: isPlace ? (i.placeId ?? undefined) : undefined,
     categoryLabel: itineraryCategoryLabel({
@@ -156,10 +165,11 @@ function combineDateTime(date: string, time: string): string | undefined {
 
 function sortEntries(a: Entry, b: Entry): number {
   if (a.completed !== b.completed) return a.completed ? 1 : -1;
-  if (a.scheduledDate && b.scheduledDate && a.scheduledDate !== b.scheduledDate)
-    return a.scheduledDate < b.scheduledDate ? -1 : 1;
-  if (a.scheduledDate && !b.scheduledDate) return -1;
-  if (!a.scheduledDate && b.scheduledDate) return 1;
+  const ad = itineraryDisplayDate(a);
+  const bd = itineraryDisplayDate(b);
+  if (ad && bd && ad !== bd) return ad < bd ? -1 : 1;
+  if (ad && !bd) return -1;
+  if (!ad && bd) return 1;
   const byTime = (a.time ?? "").localeCompare(b.time ?? "");
   if (byTime !== 0) return byTime;
   // Alphabetical last, so entries that tie on every scheduling field — which is
@@ -789,6 +799,18 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     ? datedLegs.reduce((max, l) => (toDateOnlyString(l.endDate!) > max ? toDateOnlyString(l.endDate!) : max), toDateOnlyString(datedLegs[0].endDate!))
     : null;
 
+  // While the trip is under way the list is a to-do list, so entries checked
+  // off drop out of it by default and what's left is what's still ahead; before
+  // and after the trip it's a plan or a record, so they stay. The toggle below
+  // overrides that, remembered per trip. The window is the cities' own span —
+  // close enough to "while the trip is going", and available here without the
+  // trip record itself.
+  const today = todayDateString();
+  const tripInProgress = earliestStart != null && latestEnd != null && today >= earliestStart && today <= latestEnd;
+  const showCompletedOverride = useShowCompletedOverride(tripId);
+  const showCompleted = showCompletedOverride ?? !tripInProgress;
+  const completedCount = entries.filter((e) => e.completed).length;
+
   const entriesByGroup = useMemo(() => {
     const map = new Map<string, Entry[]>();
     for (const e of entries) {
@@ -895,8 +917,10 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     setEditing(null);
   }
 
-  // Marking complete backfills scheduledDate with today's local date only if
-  // it wasn't already set — no time is tracked, per spec.
+  // Marking complete stamps completedAt with today's local date — never
+  // scheduledDate, which stays whatever the user planned so checking an entry
+  // off doesn't move it into another category section. No time is tracked, per
+  // spec. Mirrors web.
   function toggleComplete(e: Entry) {
     const completed = !e.completed;
     if (e.kind === "booking" && e.bookingId != null) {
@@ -906,10 +930,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     if (e.itemId == null) return;
     move.mutate({
       itemId: e.itemId,
-      body: {
-        completed,
-        ...(completed && !e.scheduledDate ? { scheduledDate: todayDateString() } : {}),
-      },
+      body: { completed, completedAt: completed ? todayDateString() : null },
     });
   }
 
@@ -930,6 +951,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
 
   function renderEntryRow(e: Entry) {
     const mapsUrl = entryMapsUrl(e);
+    const entryDate = itineraryDisplayDate(e);
     return (
       <Card key={e.key} className={`mb-2 flex-row items-center gap-2 ${e.completed ? "opacity-50" : ""}`}>
         <Pressable
@@ -949,8 +971,10 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
           </Text>
           <Text className="text-xs text-text-muted">
             {e.subtitle}
-            {e.scheduledDate
-              ? ` · ${formatDateLong(e.scheduledDate)}${e.kind === "booking" && e.time ? ` ${formatTime12h(e.time)}` : ""}`
+            {/* Falls back to the check-off date, so something visited on a whim
+                still shows when it happened though it was never scheduled. */}
+            {entryDate
+              ? ` · ${formatDateLong(entryDate)}${e.kind === "booking" && e.time ? ` ${formatTime12h(e.time)}` : ""}`
               : ""}
           </Text>
         </Pressable>
@@ -981,6 +1005,21 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
         onChange={selectView}
       />
 
+      {/* List view only — the calendar is the record of what happened, so it
+          always shows completed entries. */}
+      {view === "list" && completedCount > 0 && (
+        <Pressable
+          onPress={() => setShowCompleted(tripId, !showCompleted)}
+          accessibilityRole="button"
+          className="mb-3 flex-row items-center gap-2 self-start rounded-full border border-gridline px-3 py-1.5 dark:border-gridline-dark"
+        >
+          <Ionicons name={showCompleted ? "eye-off-outline" : "eye-outline"} size={16} color="#898781" />
+          <Text className="text-sm text-text-secondary dark:text-text-secondary-dark">
+            {showCompleted ? `Hide completed (${completedCount})` : `Show completed (${completedCount})`}
+          </Text>
+        </Pressable>
+      )}
+
       {view === "calendar" ? (
         <TripCalendar
           tripId={tripId}
@@ -995,9 +1034,12 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
         const collapsed = collapsedLegs.has(g.key);
         const isLeg = g.key.startsWith("leg-");
         const legId = isLeg ? Number(g.key.slice(4)) : null;
+        // Counts stay honest about the whole city even when completed entries
+        // are hidden — "3/8 visited" is exactly what the hidden ones are.
         const totalCount = g.entries.length;
         const visitedCount = g.entries.filter((e) => e.completed).length;
-        const categoryGroups = isLeg ? groupByCategory(g.entries) : null;
+        const shownEntries = showCompleted ? g.entries : g.entries.filter((e) => !e.completed);
+        const categoryGroups = isLeg ? groupByCategory(shownEntries) : null;
         return (
         <View key={g.key} className="mb-4">
           <View className="mb-2 flex-row items-center justify-between">
@@ -1022,8 +1064,10 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
               </Pressable>
             )}
           </View>
-          {collapsed ? null : g.entries.length === 0 ? (
-            <Text className="mb-2 text-xs text-text-muted">Nothing scheduled here yet.</Text>
+          {collapsed ? null : shownEntries.length === 0 ? (
+            <Text className="mb-2 text-xs text-text-muted">
+              {g.entries.length === 0 ? "Nothing scheduled here yet." : "All checked off."}
+            </Text>
           ) : categoryGroups ? (
             categoryGroups.map(([label, catEntries]) => {
               const catKey = `${g.key}::cat::${label}`;
@@ -1048,7 +1092,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
               );
             })
           ) : (
-            g.entries.map(renderEntryRow)
+            shownEntries.map(renderEntryRow)
           )}
         </View>
         );

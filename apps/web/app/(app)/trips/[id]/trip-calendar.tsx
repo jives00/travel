@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DayNote } from "@travel/types";
 import { buildTripDays, formatDayHeading, type TripDay } from "@travel/core";
 import { travelApi } from "@/lib/api";
-import type { Entry, LegOption } from "./itinerary-entry";
+import { entryDisplayDate, type Entry, type LegOption } from "./itinerary-entry";
 import { AddItemModal } from "./itinerary-panels";
 
 // Day-by-day schedule view of the itinerary — the same entries the grouped list
@@ -187,14 +187,18 @@ export function TripCalendar({
   const after: Entry[] = [];
   const undated: Entry[] = [];
   for (const entry of entries) {
-    if (!entry.scheduledDate) {
+    // Completed-but-never-scheduled entries land on the day they were checked
+    // off — the calendar is the "when did this happen" view, so nothing that
+    // actually happened should fall into "Not scheduled to a day".
+    const date = entryDisplayDate(entry);
+    if (!date) {
       undated.push(entry);
-    } else if (entry.scheduledDate < first) {
+    } else if (date < first) {
       before.push(entry);
-    } else if (entry.scheduledDate > last) {
+    } else if (date > last) {
       after.push(entry);
     } else {
-      byDate.set(entry.scheduledDate, [...(byDate.get(entry.scheduledDate) ?? []), entry]);
+      byDate.set(date, [...(byDate.get(date) ?? []), entry]);
     }
   }
 

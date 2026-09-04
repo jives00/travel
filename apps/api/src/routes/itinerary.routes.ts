@@ -12,7 +12,7 @@ const ITEM_SELECT = `
          scheduled_date AS scheduledDate, time, sort_order AS sortOrder,
          item_type AS itemType, place_id AS placeId, booking_id AS bookingId,
          activity_text AS activityText, is_private AS isPrivate, completed,
-         created_at AS createdAt, updated_at AS updatedAt
+         completed_at AS completedAt, created_at AS createdAt, updated_at AS updatedAt
   FROM itinerary_items
 `;
 
@@ -105,6 +105,7 @@ export async function itineraryRoutes(app: FastifyInstance): Promise<void> {
         ["sortOrder", "sort_order"],
         ["isPrivate", "is_private"],
         ["completed", "completed"],
+        ["completedAt", "completed_at"],
       ] as const) {
         if (body[key] !== undefined) {
           fields.push(`${column} = ?`);

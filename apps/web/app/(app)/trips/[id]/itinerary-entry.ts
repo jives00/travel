@@ -6,6 +6,7 @@ import {
   mapPinGroupForBookingType,
   itineraryCategoryLabel,
   compareItineraryCategories,
+  itineraryDisplayDate,
 } from "@travel/core";
 import type { MapPinGroup } from "@travel/ui-tokens";
 
@@ -68,6 +69,11 @@ export interface Entry {
   // Place/idea entries are checked off via itinerary_items.completed; booking
   // entries are checked off via bookings.completed — same UI, different column.
   completed: boolean;
+  // The day a place/idea was checked off. Never feeds grouping or the category
+  // label — only the date shown on the row and the calendar's day placement, so
+  // checking something off records when it happened without moving it in the
+  // list. Bookings carry their own date on startAt, so this stays null there.
+  completedAt: string | null;
   // Which collapsible category section this entry sorts into — see
   // itineraryCategoryLabel in @travel/core (date presence wins over tag/type).
   categoryLabel: string;
@@ -95,6 +101,7 @@ export function bookingEntry(b: Booking): Entry {
     description: b.notes ?? undefined,
     isPrivate: false,
     completed: b.completed,
+    completedAt: null,
     categoryLabel: itineraryCategoryLabel({ hasDate: scheduledDate != null, kind: "booking", bookingType: b.type }),
     mapPinGroup: mapPinGroupForBookingType(b.type) as MapPinGroup,
     booking: b,
@@ -119,6 +126,7 @@ export function itemEntry(i: ItineraryItem, placesById: Map<number, Place>): Ent
     placeId: isPlace ? place?.id : undefined,
     isPrivate: i.isPrivate,
     completed: i.completed,
+    completedAt: i.completedAt,
     categoryLabel: itineraryCategoryLabel({
       hasDate: i.scheduledDate != null,
       kind: isPlace ? "place" : "activity",
@@ -150,11 +158,16 @@ export function groupFor(entry: Entry, legs: Leg[], earliestStart: string | null
   return "unscheduled";
 }
 
+/** Row/calendar date for an entry — see itineraryDisplayDate in @travel/core. */
+export function entryDisplayDate(entry: Entry): string | null {
+  return itineraryDisplayDate(entry);
+}
+
 export function sortEntries(entries: Entry[]): Entry[] {
   return [...entries].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
-    const ad = a.scheduledDate ?? "zzzz";
-    const bd = b.scheduledDate ?? "zzzz";
+    const ad = entryDisplayDate(a) ?? "zzzz";
+    const bd = entryDisplayDate(b) ?? "zzzz";
     if (ad !== bd) return ad.localeCompare(bd);
     const at = a.time ?? "zz:zz";
     const bt = b.time ?? "zz:zz";

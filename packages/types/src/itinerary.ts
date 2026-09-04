@@ -17,6 +17,10 @@ export const ItineraryItem = z.object({
   activityText: z.string().nullable(),
   isPrivate: z.boolean(),
   completed: z.boolean(),
+  // The day the item was checked off, "YYYY-MM-DD" in the user's local date —
+  // deliberately separate from scheduledDate, which stays whatever the user
+  // planned (or null) so checking something off never re-categorizes it.
+  completedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -54,5 +58,8 @@ export const MoveItemBody = z.object({
   sortOrder: z.number().int().optional(),
   isPrivate: z.boolean().optional(),
   completed: z.boolean().optional(),
+  // Nullable, not just optional — un-checking an item clears it with an
+  // explicit null (see the PATCH convention in CLAUDE.md).
+  completedAt: z.string().nullish(),
 });
 export type MoveItemBody = z.infer<typeof MoveItemBody>;

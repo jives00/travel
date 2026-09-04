@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, Place } from "@travel/types";
-import { todayDateString, type TimezoneSource } from "@travel/core";
+import { todayDateString, tripDateSpan, type TimezoneSource } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
 import { useTheme } from "@/lib/theme-context";
+import { useShowCompleted } from "@/lib/itineraryPrefs";
 import {
   type Entry,
   type LegOption,
@@ -80,6 +81,21 @@ export function TripItinerary({
       // localStorage unavailable — the choice just won't persist.
     }
   }
+
+  // Today's local date, read after mount so SSR and the first client render
+  // agree on the markup (same shape the calendar view uses).
+  const [today, setToday] = useState<string | null>(null);
+  useEffect(() => setToday(todayDateString()), []);
+
+  // While the trip is under way the list is a to-do list, so entries checked
+  // off drop out of it by default and what's left is what's still ahead.
+  // Before and after the trip it's a plan or a record, so they stay visible.
+  // Either way the "Show completed" toggle overrides it, remembered per trip.
+  // Treated as in-progress until `today` is known: briefly under-showing beats
+  // showing completed entries and then yanking them away a frame later.
+  const span = trip ? tripDateSpan(trip, bookings ?? []) : null;
+  const tripInProgress = today == null || (span != null && today >= span.earliest && today <= span.latest);
+  const { showCompleted, toggleShowCompleted } = useShowCompleted(tripId, !tripInProgress);
 
   const [adding, setAdding] = useState(false);
   const [addingLegId, setAddingLegId] = useState<number | null>(null);
@@ -163,10 +179,12 @@ export function TripItinerary({
     if (b.type === "hotel" && b.legId != null && !hotelBookingByLegId.has(b.legId)) hotelBookingByLegId.set(b.legId, b);
   }
 
-  // Marking complete backfills scheduledDate with today's local date only if
-  // it wasn't already set — no time is tracked, per spec. When checking (not
-  // unchecking), the fade plays in place for FADE_MS before the list actually
-  // reorders the entry to the bottom.
+  // Marking complete stamps completedAt with today's local date — never
+  // scheduledDate, which stays whatever the user planned so checking an entry
+  // off doesn't move it into another category section. No time is tracked, per
+  // spec. When checking (not unchecking), the fade plays in place for FADE_MS
+  // before the list actually reorders (or, with completed hidden, drops) the
+  // entry.
   const FADE_MS = 400;
   async function toggleComplete(entry: Entry) {
     const completed = !entry.completed;
@@ -177,7 +195,7 @@ export function TripItinerary({
         : entry.item
           ? travelApi.itinerary.move(tripId, entry.item.id, {
               completed,
-              ...(completed && !entry.scheduledDate ? { scheduledDate: todayDateString() } : {}),
+              completedAt: completed ? todayDateString() : null,
             })
           : undefined;
     if (!save) return;
@@ -238,9 +256,19 @@ export function TripItinerary({
     groups.set(key, [...(groups.get(key) ?? []), entry]);
   }
 
-  const preEntries = sortEntries(groups.get("pre") ?? []);
-  const postEntries = sortEntries(groups.get("post") ?? []);
-  const unscheduledEntries = sortEntries(groups.get("unscheduled") ?? []);
+  const completedCount = allEntries.filter((e) => e.completed).length;
+
+  // The list view's filter for the "Show completed" toggle. An entry mid-fade
+  // stays in place until its animation finishes, so checking something off is
+  // still visible before it drops out.
+  function visible(entries: Entry[]): Entry[] {
+    if (showCompleted) return entries;
+    return entries.filter((e) => !e.completed || fadingKeys.has(e.key));
+  }
+
+  const preEntries = visible(sortEntries(groups.get("pre") ?? []));
+  const postEntries = visible(sortEntries(groups.get("post") ?? []));
+  const unscheduledEntries = visible(sortEntries(groups.get("unscheduled") ?? []));
 
   // Scroll-spy: tracks which section (a leg, or Pre-Trip/Post-Trip/
   // Unscheduled) currently sits in a band near the top of the viewport, and
@@ -326,22 +354,38 @@ export function TripItinerary({
   }
 
   const viewToggle = (
-    <div className="flex gap-1 rounded-full border border-gridline bg-surface p-1 text-sm">
-      {(["list", "calendar"] as const).map((v) => (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex gap-1 rounded-full border border-gridline bg-surface p-1 text-sm">
+        {(["list", "calendar"] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => selectView(v)}
+            aria-pressed={view === v}
+            className={`flex items-center gap-1 rounded-full px-3 py-1 ${
+              view === v ? "bg-category-transit text-white" : "text-text-secondary"
+            }`}
+          >
+            <span className="material-symbols-outlined text-base" aria-hidden="true">
+              {v === "list" ? "view_list" : "calendar_month"}
+            </span>
+            {v === "list" ? "List" : "Calendar"}
+          </button>
+        ))}
+      </div>
+      {/* List view only — the calendar is the record of what happened, so it
+          always shows completed entries. */}
+      {view === "list" && completedCount > 0 && (
         <button
-          key={v}
-          onClick={() => selectView(v)}
-          aria-pressed={view === v}
-          className={`flex items-center gap-1 rounded-full px-3 py-1 ${
-            view === v ? "bg-category-transit text-white" : "text-text-secondary"
-          }`}
+          onClick={toggleShowCompleted}
+          aria-pressed={showCompleted}
+          className="flex items-center gap-1 rounded-full border border-gridline bg-surface px-3 py-1.5 text-sm text-text-secondary hover:border-category-transit"
         >
           <span className="material-symbols-outlined text-base" aria-hidden="true">
-            {v === "list" ? "view_list" : "calendar_month"}
+            {showCompleted ? "visibility_off" : "visibility"}
           </span>
-          {v === "list" ? "List" : "Calendar"}
+          {showCompleted ? `Hide completed (${completedCount})` : `Show completed (${completedCount})`}
         </button>
-      ))}
+      )}
     </div>
   );
 
@@ -398,9 +442,12 @@ export function TripItinerary({
         const legKey = `leg-${leg.id}`;
         const expanded = !collapsedSections.has(legKey);
         const rawLegEntries = sortEntries(groups.get(legKey) ?? []);
+        // Counts stay honest about the whole city even when completed entries
+        // are hidden — "3/8 visited" is exactly what the hidden ones are.
         const totalCount = rawLegEntries.length;
         const visitedCount = rawLegEntries.filter((e) => e.completed).length;
-        const categoryGroups = groupByCategory(rawLegEntries);
+        const legEntries = visible(rawLegEntries);
+        const categoryGroups = groupByCategory(legEntries);
         return (
           <div key={leg.id} className="space-y-2">
             <section ref={sectionRef(String(leg.id))} className="rounded border border-gridline bg-surface p-4">
@@ -444,7 +491,10 @@ export function TripItinerary({
                 </div>
               </div>
               {expanded && rawLegEntries.length === 0 && <p className="text-sm text-text-muted">Nothing here yet.</p>}
-              {expanded && rawLegEntries.length > 0 && (
+              {expanded && rawLegEntries.length > 0 && legEntries.length === 0 && (
+                <p className="text-sm text-text-muted">All checked off.</p>
+              )}
+              {expanded && legEntries.length > 0 && (
                 <div className="mt-3 space-y-3">
                   {categoryGroups.map(([label, catEntries]) => {
                     const catKey = `${legKey}::cat::${label}`;

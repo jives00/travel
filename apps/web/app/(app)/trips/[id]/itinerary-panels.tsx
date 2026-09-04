@@ -28,7 +28,7 @@ import {
   type AutocompleteSearchHandle,
   type AutocompleteSearchState,
 } from "@/components/autocomplete-search";
-import { type Entry, type LegOption, formatDateRange, formatTime12h, toDateOnlyString } from "./itinerary-entry";
+import { entryDisplayDate, type Entry, type LegOption, formatDateRange, formatTime12h, toDateOnlyString } from "./itinerary-entry";
 
 // Every shared piece of itinerary UI — the modal shell, the entry row, the
 // add/edit dialogs, and the inline place/booking detail panels — so the list
@@ -87,6 +87,9 @@ export function EntryRow({
   // Every entry kind can be checked off done/visited now.
   const completable = true;
   const done = entry.completed || fading;
+  // Falls back to the check-off date, so something visited on a whim still
+  // shows when it happened even though it was never on the schedule.
+  const displayDate = entryDisplayDate(entry);
 
   return (
     <li
@@ -118,8 +121,8 @@ export function EntryRow({
                 )}
               </span>
               <span className="shrink-0 text-xs text-text-muted">
-                {entry.scheduledDate
-                  ? new Date(`${entry.scheduledDate}T00:00:00Z`).toLocaleDateString("en-US", {
+                {displayDate
+                  ? new Date(`${displayDate}T00:00:00Z`).toLocaleDateString("en-US", {
                       month: "long",
                       day: "numeric",
                       timeZone: "UTC",

@@ -57,3 +57,15 @@ export function compareItineraryCategories(a: string, b: string): number {
   const bi = ITINERARY_CATEGORIES.indexOf(b as ItineraryCategory);
   return (ai === -1 ? ITINERARY_CATEGORIES.length : ai) - (bi === -1 ? ITINERARY_CATEGORIES.length : bi);
 }
+
+/** The date an itinerary entry sits on in the day-by-day calendar: what the
+ * user scheduled, falling back to the day it was checked off. Something
+ * visited on a whim was never scheduled, so only completedAt can place it —
+ * but that fallback stays out of the list view's grouping, which keeps using
+ * scheduledDate so checking an entry off never moves it between sections. */
+export function itineraryDisplayDate(entry: {
+  scheduledDate: string | null;
+  completedAt?: string | null;
+}): string | null {
+  return entry.scheduledDate ?? entry.completedAt ?? null;
+}

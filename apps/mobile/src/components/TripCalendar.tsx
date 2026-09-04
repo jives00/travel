@@ -3,7 +3,7 @@ import { View, Text, Pressable } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import type { DayNote, Leg } from "@travel/types";
-import { buildTripDays, formatDayHeading, todayDateString, type TripDay } from "@travel/core";
+import { buildTripDays, formatDayHeading, itineraryDisplayDate, todayDateString, type TripDay } from "@travel/core";
 import { travelApi } from "../lib/api";
 import { useSetDayNote } from "../lib/offlineMutations/dayNotes";
 import { Card, TextField } from "./ui";
@@ -168,10 +168,14 @@ export function TripCalendar({
     const first = days[0].date;
     const last = days[days.length - 1].date;
     for (const entry of entries) {
-      if (!entry.scheduledDate) undated.push(entry);
-      else if (entry.scheduledDate < first) before.push(entry);
-      else if (entry.scheduledDate > last) after.push(entry);
-      else byDate.set(entry.scheduledDate, [...(byDate.get(entry.scheduledDate) ?? []), entry]);
+      // Completed-but-never-scheduled entries land on the day they were checked
+      // off — the calendar is the "when did this happen" view, so nothing that
+      // actually happened should fall into the undated bucket.
+      const date = itineraryDisplayDate(entry);
+      if (!date) undated.push(entry);
+      else if (date < first) before.push(entry);
+      else if (date > last) after.push(entry);
+      else byDate.set(date, [...(byDate.get(date) ?? []), entry]);
     }
     return { byDate, before, after, undated };
   }, [entries, days]);
