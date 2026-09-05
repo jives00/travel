@@ -23,7 +23,12 @@ import { exportRoutes } from "./routes/export.routes";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
-    logger: { level: "warn", transport: { target: "pino-pretty" } },
+    // "warn" hides every request line *and* every 4xx reply, which makes a
+    // client that's silently failing (401s it swallows, a body the schema
+    // rejects) invisible from the server side. "info" logs one req/res pair per
+    // call — cheap for a single-user app, and the only way to see what a phone
+    // is actually sending. LOG_LEVEL overrides it without a rebuild.
+    logger: { level: process.env.LOG_LEVEL ?? "info", transport: { target: "pino-pretty" } },
     trustProxy: true,
     // find-my-way's default maxParamLength is 100 — Google Places API (New)
     // place IDs routinely run 100-150+ chars, so any :placeId route param over
