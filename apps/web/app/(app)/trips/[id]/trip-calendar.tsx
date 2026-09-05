@@ -148,6 +148,7 @@ export function TripCalendar({
   legs,
   entries,
   isVisible,
+  hidePast,
   legOptions,
   placeOptions,
   renderEntry,
@@ -159,6 +160,10 @@ export function TripCalendar({
   /** The parent's "Show completed" filter. Applied here rather than upstream so
    * each day still knows how many entries it's holding back. */
   isVisible?: (entry: Entry) => boolean;
+  /** Rides along with the same toggle: a day that has already been and gone is
+   * as done as a checked-off entry, so hiding completed entries also drops
+   * every day before today and anything dated into the past. */
+  hidePast?: boolean;
   legOptions: LegOption[];
   placeOptions: { id: number; name: string }[];
   renderEntry: (entry: Entry) => React.ReactNode;
@@ -176,7 +181,15 @@ export function TripCalendar({
     );
   }, []);
 
-  const show = isVisible ?? (() => true);
+  // `today` is null until the mount effect runs, so nothing is treated as past
+  // until the date is actually known.
+  const pastDay = (date: string) => hidePast === true && today != null && date < today;
+  const visibleEntry = isVisible ?? (() => true);
+  const show = (entry: Entry) => {
+    if (!visibleEntry(entry)) return false;
+    const date = entryDisplayDate(entry);
+    return date == null || !pastDay(date);
+  };
   const days = buildTripDays(legs as Parameters<typeof buildTripDays>[0]);
 
   if (days.length === 0) {
@@ -190,6 +203,9 @@ export function TripCalendar({
   const noteByDate = new Map<string, string>(
     (notes ?? []).map((n: DayNote) => [n.date.length > 10 ? n.date.slice(0, 10) : n.date, n.note]),
   );
+
+  const shownDays = days.filter((d) => !pastDay(d.date));
+  const pastDays = days.length - shownDays.length;
 
   const first = days[0].date;
   const last = days[days.length - 1].date;
@@ -217,7 +233,13 @@ export function TripCalendar({
     <div className="space-y-3">
       <ExtraSection title="Before the trip" entries={before.filter(show)} renderEntry={renderEntry} />
 
-      {days.map((day) => {
+      {pastDays > 0 && (
+        <p className="px-1 text-sm text-text-muted">
+          {pastDays === 1 ? "1 earlier day hidden" : `${pastDays} earlier days hidden`}
+        </p>
+      )}
+
+      {shownDays.map((day) => {
         const dayEntries = byDate.get(day.date) ?? [];
         const shown = dayEntries.filter(show);
         return (

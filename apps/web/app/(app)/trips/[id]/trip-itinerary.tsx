@@ -404,6 +404,7 @@ export function TripItinerary({
           legs={sortedLegs}
           entries={sortEntries(allEntries)}
           isVisible={isVisible}
+          hidePast={!showCompleted}
           legOptions={legOptions}
           placeOptions={placeOptions}
           renderEntry={renderEntry}

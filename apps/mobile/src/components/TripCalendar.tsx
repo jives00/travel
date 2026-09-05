@@ -154,15 +154,23 @@ export function TripCalendar({
   /** Already privacy-filtered and sorted by the caller. */
   entries: Entry[];
   /** The caller's "Show completed" preference. Applied here rather than
-   * upstream so each day still knows how many entries it's holding back. */
+   * upstream so each day still knows how many entries it's holding back. It
+   * also governs the past: a day that has already been and gone is as done as
+   * a checked-off entry, so hiding completed drops every day before today and
+   * anything dated into the past along with them. */
   showCompleted?: boolean;
   renderEntry: (entry: Entry) => React.ReactNode;
   onAddToDay: (day: TripDay) => void;
 }) {
   const { data: notes } = useQuery(travelApi.queries.dayNotesQuery(tripId));
-  const show = (e: Entry) => showCompleted !== false || !e.completed;
   const days = useMemo(() => buildTripDays(legs), [legs]);
   const today = todayDateString();
+  const pastDay = (date: string) => showCompleted === false && date < today;
+  const show = (e: Entry) => {
+    if (showCompleted === false && e.completed) return false;
+    const date = itineraryDisplayDate(e);
+    return date == null || !pastDay(date);
+  };
 
   const noteByDate = useMemo(
     () => new Map((notes ?? []).map((n: DayNote) => [dayOf(n.date), n.note])),
@@ -190,6 +198,9 @@ export function TripCalendar({
     return { byDate, before, after, undated };
   }, [entries, days]);
 
+  const shownDays = days.filter((d) => !pastDay(d.date));
+  const pastDays = days.length - shownDays.length;
+
   if (days.length === 0) {
     return (
       <Card>
@@ -204,7 +215,13 @@ export function TripCalendar({
     <View>
       <ExtraSection title="Before the trip" entries={buckets.before.filter(show)} renderEntry={renderEntry} />
 
-      {days.map((day) => {
+      {pastDays > 0 && (
+        <Text className="mb-3 text-sm text-text-muted">
+          {pastDays === 1 ? "1 earlier day hidden" : `${pastDays} earlier days hidden`}
+        </Text>
+      )}
+
+      {shownDays.map((day) => {
         const dayEntries = buckets.byDate.get(day.date) ?? [];
         const shown = dayEntries.filter(show);
         return (
