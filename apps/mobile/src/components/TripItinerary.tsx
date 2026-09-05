@@ -831,7 +831,9 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
   /** Everything with no date on it — what the calendar's day sheet offers to
    * drop onto the day you tapped. */
   const undatedEntries = useMemo(
-    () => entries.filter((e) => !e.scheduledDate).sort(sortEntries),
+    // Checked-off entries are left out even when they're visible: this list is
+    // "what still needs a day", and something already done doesn't.
+    () => entries.filter((e) => !e.scheduledDate && !e.completed).sort(sortEntries),
     [entries],
   );
 
@@ -1005,9 +1007,9 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
         onChange={selectView}
       />
 
-      {/* List view only — the calendar is the record of what happened, so it
-          always shows completed entries. */}
-      {view === "list" && completedCount > 0 && (
+      {/* One preference drives both views — a trip you've decided to see clean
+          should read the same way whichever way you're looking at it. */}
+      {completedCount > 0 && (
         <Pressable
           onPress={() => setShowCompleted(tripId, !showCompleted)}
           accessibilityRole="button"
@@ -1025,6 +1027,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
           tripId={tripId}
           legs={sortedLegs}
           entries={[...entries].sort(sortEntries)}
+          showCompleted={showCompleted}
           renderEntry={renderEntryRow}
           onAddToDay={openAddForDay}
         />

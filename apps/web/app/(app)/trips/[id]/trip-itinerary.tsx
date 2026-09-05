@@ -258,12 +258,16 @@ export function TripItinerary({
 
   const completedCount = allEntries.filter((e) => e.completed).length;
 
-  // The list view's filter for the "Show completed" toggle. An entry mid-fade
-  // stays in place until its animation finishes, so checking something off is
-  // still visible before it drops out.
+  // The "Show completed" filter, applied to both views off the one per-trip
+  // preference — a trip you've decided to see clean should read the same way
+  // whichever way you're looking at it. An entry mid-fade stays in place until
+  // its animation finishes, so checking something off is still visible before
+  // it drops out.
+  function isVisible(entry: Entry): boolean {
+    return showCompleted || !entry.completed || fadingKeys.has(entry.key);
+  }
   function visible(entries: Entry[]): Entry[] {
-    if (showCompleted) return entries;
-    return entries.filter((e) => !e.completed || fadingKeys.has(e.key));
+    return showCompleted ? entries : entries.filter(isVisible);
   }
 
   const preEntries = visible(sortEntries(groups.get("pre") ?? []));
@@ -372,9 +376,7 @@ export function TripItinerary({
           </button>
         ))}
       </div>
-      {/* List view only — the calendar is the record of what happened, so it
-          always shows completed entries. */}
-      {view === "list" && completedCount > 0 && (
+      {completedCount > 0 && (
         <button
           onClick={toggleShowCompleted}
           aria-pressed={showCompleted}
@@ -394,11 +396,14 @@ export function TripItinerary({
       <div className="space-y-4">
         {viewToggle}
         {/* Every entry, hotels included — unlike the list view, the calendar has
-            no leg header to surface a leg's lodging separately. */}
+            no leg header to surface a leg's lodging separately. Filtering runs
+            inside the calendar rather than here, so a day can tell "nothing was
+            ever planned" (Free Day) apart from "it's all checked off". */}
         <TripCalendar
           tripId={tripId}
           legs={sortedLegs}
           entries={sortEntries(allEntries)}
+          isVisible={isVisible}
           legOptions={legOptions}
           placeOptions={placeOptions}
           renderEntry={renderEntry}

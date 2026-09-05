@@ -66,6 +66,7 @@ function DayRow({
   tripId,
   day,
   entries,
+  hiddenCount,
   note,
   renderEntry,
   onAdd,
@@ -74,12 +75,15 @@ function DayRow({
   tripId: number;
   day: TripDay;
   entries: Entry[];
+  /** Entries on this day the "Show completed" toggle is holding back — a day
+   * emptied by the filter reads as done, not as a day nothing was planned on. */
+  hiddenCount: number;
   note: string;
   renderEntry: (entry: Entry) => React.ReactNode;
   onAdd: () => void;
   isToday: boolean;
 }) {
-  const free = entries.length === 0;
+  const free = entries.length === 0 && hiddenCount === 0;
   return (
     <section
       className={`rounded border bg-surface p-4 ${isToday ? "border-category-transit" : "border-gridline"}`}
@@ -111,11 +115,13 @@ function DayRow({
         </button>
       </div>
 
-      {free ? (
-        <p className="mb-2 text-sm font-medium uppercase tracking-wide text-text-muted">Free Day</p>
-      ) : (
-        <ul className="mb-2 space-y-1">{entries.map(renderEntry)}</ul>
+      {free && <p className="mb-2 text-sm font-medium uppercase tracking-wide text-text-muted">Free Day</p>}
+      {!free && entries.length === 0 && (
+        <p className="mb-2 text-sm font-medium uppercase tracking-wide text-text-muted">
+          All checked off ({hiddenCount})
+        </p>
       )}
+      {entries.length > 0 && <ul className="mb-2 space-y-1">{entries.map(renderEntry)}</ul>}
 
       <DayNoteEditor tripId={tripId} date={day.date} note={note} />
     </section>
@@ -141,6 +147,7 @@ export function TripCalendar({
   tripId,
   legs,
   entries,
+  isVisible,
   legOptions,
   placeOptions,
   renderEntry,
@@ -149,6 +156,9 @@ export function TripCalendar({
   legs: { id: number; city: string; startDate: string | null; endDate: string | null }[];
   /** Already sorted and privacy-filtered by the parent. */
   entries: Entry[];
+  /** The parent's "Show completed" filter. Applied here rather than upstream so
+   * each day still knows how many entries it's holding back. */
+  isVisible?: (entry: Entry) => boolean;
   legOptions: LegOption[];
   placeOptions: { id: number; name: string }[];
   renderEntry: (entry: Entry) => React.ReactNode;
@@ -166,6 +176,7 @@ export function TripCalendar({
     );
   }, []);
 
+  const show = isVisible ?? (() => true);
   const days = buildTripDays(legs as Parameters<typeof buildTripDays>[0]);
 
   if (days.length === 0) {
@@ -204,23 +215,28 @@ export function TripCalendar({
 
   return (
     <div className="space-y-3">
-      <ExtraSection title="Before the trip" entries={before} renderEntry={renderEntry} />
+      <ExtraSection title="Before the trip" entries={before.filter(show)} renderEntry={renderEntry} />
 
-      {days.map((day) => (
-        <DayRow
-          key={day.date}
-          tripId={tripId}
-          day={day}
-          entries={byDate.get(day.date) ?? []}
-          note={noteByDate.get(day.date) ?? ""}
-          renderEntry={renderEntry}
-          onAdd={() => setAddingDay(day)}
-          isToday={today === day.date}
-        />
-      ))}
+      {days.map((day) => {
+        const dayEntries = byDate.get(day.date) ?? [];
+        const shown = dayEntries.filter(show);
+        return (
+          <DayRow
+            key={day.date}
+            tripId={tripId}
+            day={day}
+            entries={shown}
+            hiddenCount={dayEntries.length - shown.length}
+            note={noteByDate.get(day.date) ?? ""}
+            renderEntry={renderEntry}
+            onAdd={() => setAddingDay(day)}
+            isToday={today === day.date}
+          />
+        );
+      })}
 
-      <ExtraSection title="After the trip" entries={after} renderEntry={renderEntry} />
-      <ExtraSection title="Not scheduled to a day" entries={undated} renderEntry={renderEntry} />
+      <ExtraSection title="After the trip" entries={after.filter(show)} renderEntry={renderEntry} />
+      <ExtraSection title="Not scheduled to a day" entries={undated.filter(show)} renderEntry={renderEntry} />
 
       {addingDay && (
         <AddItemModal
@@ -230,7 +246,7 @@ export function TripCalendar({
           defaultLegId={addingDay.legId ?? undefined}
           defaultDate={addingDay.date}
           dayLabel={formatDayHeading(addingDay.date)}
-          unscheduledEntries={undated}
+          unscheduledEntries={undated.filter(show)}
           onClose={() => setAddingDay(null)}
         />
       )}

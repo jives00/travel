@@ -59,6 +59,7 @@ function DayRow({
   tripId,
   day,
   entries,
+  hiddenCount,
   note,
   isToday,
   renderEntry,
@@ -67,6 +68,9 @@ function DayRow({
   tripId: number;
   day: TripDay;
   entries: Entry[];
+  /** Entries on this day the "Show completed" toggle is holding back — a day
+   * emptied by the filter reads as done, not as a day nothing was planned on. */
+  hiddenCount: number;
   note: string;
   isToday: boolean;
   renderEntry: (entry: Entry) => React.ReactNode;
@@ -100,10 +104,11 @@ function DayRow({
         </Pressable>
       </View>
 
-      {entries.length === 0 ? (
-        <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Free Day</Text>
-      ) : (
-        entries.map(renderEntry)
+      {entries.length > 0 && entries.map(renderEntry)}
+      {entries.length === 0 && (
+        <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          {hiddenCount === 0 ? "Free Day" : `All checked off (${hiddenCount})`}
+        </Text>
       )}
 
       <DayNoteEditor tripId={tripId} date={day.date} note={note} />
@@ -138,6 +143,7 @@ export function TripCalendar({
   tripId,
   legs,
   entries,
+  showCompleted,
   renderEntry,
   onAddToDay,
 }: {
@@ -147,10 +153,14 @@ export function TripCalendar({
   legs: Leg[];
   /** Already privacy-filtered and sorted by the caller. */
   entries: Entry[];
+  /** The caller's "Show completed" preference. Applied here rather than
+   * upstream so each day still knows how many entries it's holding back. */
+  showCompleted?: boolean;
   renderEntry: (entry: Entry) => React.ReactNode;
   onAddToDay: (day: TripDay) => void;
 }) {
   const { data: notes } = useQuery(travelApi.queries.dayNotesQuery(tripId));
+  const show = (e: Entry) => showCompleted !== false || !e.completed;
   const days = useMemo(() => buildTripDays(legs), [legs]);
   const today = todayDateString();
 
@@ -192,23 +202,28 @@ export function TripCalendar({
 
   return (
     <View>
-      <ExtraSection title="Before the trip" entries={buckets.before} renderEntry={renderEntry} />
+      <ExtraSection title="Before the trip" entries={buckets.before.filter(show)} renderEntry={renderEntry} />
 
-      {days.map((day) => (
-        <DayRow
-          key={day.date}
-          tripId={tripId}
-          day={day}
-          entries={buckets.byDate.get(day.date) ?? []}
-          note={noteByDate.get(day.date) ?? ""}
-          isToday={today === day.date}
-          renderEntry={renderEntry}
-          onAdd={() => onAddToDay(day)}
-        />
-      ))}
+      {days.map((day) => {
+        const dayEntries = buckets.byDate.get(day.date) ?? [];
+        const shown = dayEntries.filter(show);
+        return (
+          <DayRow
+            key={day.date}
+            tripId={tripId}
+            day={day}
+            entries={shown}
+            hiddenCount={dayEntries.length - shown.length}
+            note={noteByDate.get(day.date) ?? ""}
+            isToday={today === day.date}
+            renderEntry={renderEntry}
+            onAdd={() => onAddToDay(day)}
+          />
+        );
+      })}
 
-      <ExtraSection title="After the trip" entries={buckets.after} renderEntry={renderEntry} />
-      <ExtraSection title="Not scheduled to a day" entries={buckets.undated} renderEntry={renderEntry} />
+      <ExtraSection title="After the trip" entries={buckets.after.filter(show)} renderEntry={renderEntry} />
+      <ExtraSection title="Not scheduled to a day" entries={buckets.undated.filter(show)} renderEntry={renderEntry} />
     </View>
   );
 }
