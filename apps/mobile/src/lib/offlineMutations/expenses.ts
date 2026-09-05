@@ -62,7 +62,9 @@ export function useUpdateExpense(tripId: number) {
 }
 
 export function useRemoveExpense(tripId: number) {
-  return useMutation<void, Error, { expenseId: number }>({
+  // tripId travels in the variables, not this closure — the queued-mutation
+  // replay path rebuilds the request from the persisted variables alone.
+  const m = useMutation<void, Error, { tripId: number; expenseId: number }>({
     mutationKey: EXPENSE_REMOVE,
     // Optimistically drop the line from the cached summary so it disappears
     // immediately even offline (the rollup is re-derived locally from the
@@ -82,6 +84,7 @@ export function useRemoveExpense(tripId: number) {
     },
     onSettled: () => invalidate(tripId),
   });
+  return { ...m, mutate: (v: { expenseId: number }) => m.mutate({ ...v, tripId }) };
 }
 
 /** Re-derive the rollups from a filtered line set, reusing core's rollupBudget so

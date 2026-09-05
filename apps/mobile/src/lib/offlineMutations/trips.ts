@@ -118,7 +118,9 @@ export function useAddLeg(tripId: number) {
 }
 
 export function useDeleteLeg(tripId: number) {
-  return useMutation<void, Error, { legId: number }>({
+  // tripId travels in the variables, not this closure — the queued-mutation
+  // replay path rebuilds the request from the persisted variables alone.
+  const m = useMutation<void, Error, { tripId: number; legId: number }>({
     mutationKey: LEG_DELETE,
     onMutate: ({ legId }) => {
       const k = ["trips", resolveId(tripId)] as const;
@@ -132,6 +134,7 @@ export function useDeleteLeg(tripId: number) {
     },
     onSettled: () => invalidateTrip(tripId),
   });
+  return { ...m, mutate: (v: { legId: number }) => m.mutate({ ...v, tripId }) };
 }
 
 // ---- hooks (components use these; optimistic updates live in onMutate) -------

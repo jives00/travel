@@ -6,7 +6,14 @@ import { nextTempId, registerOfflineMutation, resolveId } from "../mutations";
 
 /** Itinerary scheduling (free-form: legId + scheduledDate + time all optional).
  * Refs (placeId/bookingId/legId/tripId) may be temp ids from offline creates —
- * all resolved on replay. */
+ * all resolved on replay.
+ *
+ * Each hook injects its `tripId` into the mutation *variables* rather than
+ * letting mutationFn read it from the hook's closure. The registered mutationFn
+ * is re-attached by key at startup and replays from the persisted variables
+ * alone (see mutations.ts) — there is no closure to read. Leaving it out doesn'"'"'t
+ * fail to compile; it builds a request to /api/trips/undefined/... that 404s,
+ * which the UI shows as an edit that sticks for a moment and then reverts. */
 
 export const ITIN_SCHEDULE = ["itinerary", "schedule"] as const;
 export const ITIN_MOVE = ["itinerary", "move"] as const;
@@ -103,7 +110,7 @@ export function useScheduleItem(tripId: number) {
 }
 
 export function useMoveItem(tripId: number) {
-  return useMutation<ItineraryItem, Error, { itemId: number; body: MoveItemBody }>({
+  const m = useMutation<ItineraryItem, Error, { tripId: number; itemId: number; body: MoveItemBody }>({
     mutationKey: ITIN_MOVE,
     onMutate: async ({ itemId, body }) => {
       await cancel(tripId);
@@ -115,10 +122,11 @@ export function useMoveItem(tripId: number) {
     onError: (_e, _v, ctx) => restore(ctx, tripId),
     onSettled: () => invalidate(tripId),
   });
+  return { ...m, mutate: (v: { itemId: number; body: MoveItemBody }) => m.mutate({ ...v, tripId }) };
 }
 
 export function useUnscheduleItem(tripId: number) {
-  return useMutation<void, Error, { itemId: number }>({
+  const m = useMutation<void, Error, { tripId: number; itemId: number }>({
     mutationKey: ITIN_UNSCHEDULE,
     onMutate: async ({ itemId }) => {
       await cancel(tripId);
@@ -128,6 +136,7 @@ export function useUnscheduleItem(tripId: number) {
     onError: (_e, _v, ctx) => restore(ctx, tripId),
     onSettled: () => invalidate(tripId),
   });
+  return { ...m, mutate: (v: { itemId: number }) => m.mutate({ ...v, tripId }) };
 }
 
 function restore(ctx: unknown, tripId: number) {

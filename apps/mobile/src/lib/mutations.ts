@@ -62,8 +62,18 @@ function recordMapping(tempId: number, realId: number): void {
 }
 
 /** Resolve an id that might be a temp id to its real server id, if known.
- * Real ids and not-yet-synced temp ids pass through unchanged. */
+ * Real ids and not-yet-synced temp ids pass through unchanged.
+ *
+ * Throws on a missing id rather than passing it through. A mutation whose hook
+ * forgot to put an id in its *variables* (reading it from a closure the replay
+ * path can'"'"'t see) used to sail through here as undefined and build a request to
+ * /api/trips/undefined/... — a 404 the UI showed only as an edit that reverted a
+ * few seconds later. Callers that legitimately have no id already guard with
+ * `!= null` before calling. */
 export function resolveId(id: number): number {
+  if (typeof id !== "number" || Number.isNaN(id)) {
+    throw new Error(`resolveId: expected an id, got ${String(id)} — is it missing from the mutation variables?`);
+  }
   return idMap[id] ?? id;
 }
 
