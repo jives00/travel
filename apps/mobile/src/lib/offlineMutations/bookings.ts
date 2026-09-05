@@ -32,7 +32,21 @@ export function registerBookingMutations(): void {
   });
 }
 
-const invalidate = (tripId: number) => queryClient.invalidateQueries({ queryKey: ["bookings", resolveId(tripId)] });
+const key = (tripId: number) => ["bookings", resolveId(tripId)] as const;
+
+const invalidate = (tripId: number) => queryClient.invalidateQueries({ queryKey: key(tripId) });
+
+/** Stop any GET that's already in flight before writing an optimistic value.
+ * A fetch started *before* the write resolves *after* it and would otherwise
+ * write pre-write rows over the optimistic ones — the "it ticks, then flips
+ * back a few seconds later" bug. react-query dedupes, so the invalidate in
+ * onSettled would reuse that same stale fetch rather than correcting it. */
+const cancel = (tripId: number) => queryClient.cancelQueries({ queryKey: key(tripId) });
+
+function restoreBookings(ctx: unknown, tripId: number) {
+  const c = ctx as { prev?: Booking[] } | undefined;
+  if (c?.prev) queryClient.setQueryData(key(tripId), c.prev);
+}
 
 export function useCreateBooking(tripId: number) {
   const m = useMutation<Booking, Error, { tripId: number; body: CreateBookingBody; tempId: number }>({
@@ -45,6 +59,19 @@ export function useCreateBooking(tripId: number) {
 export function useUpdateBooking(tripId: number) {
   const m = useMutation<Booking, Error, { tripId: number; bookingId: number; body: UpdateBookingBody }>({
     mutationKey: BOOKING_UPDATE,
+    // Optimistic so a check-off (and any other edit) shows on the tap rather
+    // than on the refetch — and so it still shows while the edit sits queued
+    // offline. The body's keys are a subset of Booking's, and a cleared field
+    // arrives as an explicit null, so a shallow merge is the whole update.
+    onMutate: async ({ tripId: t, bookingId, body }) => {
+      await cancel(t);
+      const prev = queryClient.getQueryData<Booking[]>(key(t));
+      queryClient.setQueryData<Booking[]>(key(t), (old) =>
+        old?.map((b) => (b.id === bookingId ? { ...b, ...body } : b)),
+      );
+      return { prev };
+    },
+    onError: (_e, v, ctx) => restoreBookings(ctx, v.tripId),
     onSettled: (_d, _e, v) => invalidate(v.tripId),
   });
   return { ...m, update: (bookingId: number, body: UpdateBookingBody) => m.mutate({ tripId, bookingId, body }) };
@@ -53,16 +80,13 @@ export function useUpdateBooking(tripId: number) {
 export function useRemoveBooking(tripId: number) {
   return useMutation<void, Error, { bookingId: number }>({
     mutationKey: BOOKING_REMOVE,
-    onMutate: ({ bookingId }) => {
-      const k = ["bookings", resolveId(tripId)] as const;
-      const prev = queryClient.getQueryData<Booking[]>(k);
-      queryClient.setQueryData<Booking[]>(k, (old) => old?.filter((b) => b.id !== bookingId));
+    onMutate: async ({ bookingId }) => {
+      await cancel(tripId);
+      const prev = queryClient.getQueryData<Booking[]>(key(tripId));
+      queryClient.setQueryData<Booking[]>(key(tripId), (old) => old?.filter((b) => b.id !== bookingId));
       return { prev };
     },
-    onError: (_e, _v, ctx) => {
-      const c = ctx as { prev?: Booking[] } | undefined;
-      if (c?.prev) queryClient.setQueryData(["bookings", resolveId(tripId)], c.prev);
-    },
+    onError: (_e, _v, ctx) => restoreBookings(ctx, tripId),
     onSettled: () => invalidate(tripId),
   });
 }

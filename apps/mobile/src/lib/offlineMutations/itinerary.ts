@@ -21,6 +21,13 @@ function patch(tripId: number, fn: (items: ItineraryItem[]) => ItineraryItem[]) 
   return prev;
 }
 
+/** Stop any GET that's already in flight before writing an optimistic value.
+ * A fetch started *before* the write resolves *after* it and would otherwise
+ * write pre-write rows over the optimistic ones — the "it ticks, then flips
+ * back a few seconds later" bug. react-query dedupes, so the invalidate in
+ * onSettled would reuse that same stale fetch rather than correcting it. */
+const cancel = (tripId: number) => queryClient.cancelQueries({ queryKey: key(resolveId(tripId)) });
+
 export function registerItineraryMutations(): void {
   registerOfflineMutation<{ tripId: number; body: ScheduleItemBody; tempId: number }, ItineraryItem>({
     mutationKey: ITIN_SCHEDULE,
@@ -62,7 +69,8 @@ const invalidate = (tripId: number) =>
 export function useScheduleItem(tripId: number) {
   const m = useMutation<ItineraryItem, Error, { tripId: number; body: ScheduleItemBody; tempId: number }>({
     mutationKey: ITIN_SCHEDULE,
-    onMutate: ({ tripId: t, body, tempId }) => {
+    onMutate: async ({ tripId: t, body, tempId }) => {
+      await cancel(t);
       const now = new Date().toISOString();
       const optimistic: ItineraryItem = {
         id: tempId,
@@ -97,7 +105,8 @@ export function useScheduleItem(tripId: number) {
 export function useMoveItem(tripId: number) {
   return useMutation<ItineraryItem, Error, { itemId: number; body: MoveItemBody }>({
     mutationKey: ITIN_MOVE,
-    onMutate: ({ itemId, body }) => {
+    onMutate: async ({ itemId, body }) => {
+      await cancel(tripId);
       const prev = patch(tripId, (items) =>
         items.map((i) => (i.id === itemId ? { ...i, ...body, legId: body.legId ?? i.legId } : i)),
       );
@@ -111,7 +120,8 @@ export function useMoveItem(tripId: number) {
 export function useUnscheduleItem(tripId: number) {
   return useMutation<void, Error, { itemId: number }>({
     mutationKey: ITIN_UNSCHEDULE,
-    onMutate: ({ itemId }) => {
+    onMutate: async ({ itemId }) => {
+      await cancel(tripId);
       const prev = patch(tripId, (items) => items.filter((i) => i.id !== itemId));
       return { prev };
     },

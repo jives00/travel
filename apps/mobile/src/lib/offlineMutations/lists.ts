@@ -5,9 +5,11 @@ import { queryClient } from "../queryClient";
 import { nextTempId, registerOfflineMutation, resolveId } from "../mutations";
 
 /**
- * Custom lists (the mobile Lists tab shows global lists — queryKey
- * ["lists","global"], matching web's /lists). All ops queue offline. A packing
- * list is a core travel use, so checking items off with the NAS down must work.
+ * Custom lists. The Lists tab shows global lists (queryKey ["lists","global"],
+ * matching web's /lists); a trip's Lists sheet shows that trip's (["lists",
+ * tripId]) — optimistic writes touch both, so KEY is the shared prefix. All ops
+ * queue offline. A packing list is a core travel use, so checking items off with
+ * the NAS down must work.
  *
  * Known limit: the API's addItem returns void (no new item id), so an item
  * *created* offline and then toggled/removed in the *same* offline session can't
@@ -15,7 +17,7 @@ import { nextTempId, registerOfflineMutation, resolveId } from "../mutations";
  * Items that already existed (real ids) toggle/remove perfectly offline.
  */
 
-const KEY = ["lists", "global"] as const;
+const KEY = ["lists"] as const;
 
 export const LIST_CREATE = ["lists", "create"] as const;
 export const LIST_ADD_ITEM = ["lists", "addItem"] as const;
@@ -29,11 +31,28 @@ export const LIST_REORDER_LISTS = ["lists", "reorderLists"] as const;
 export const LIST_UPDATE_ITEM_TEXT = ["lists", "updateItemText"] as const;
 export const LIST_SET_TRIP = ["lists", "setTrip"] as const;
 
-function patchList(listId: number, fn: (l: ListWithItems) => ListWithItems): ListWithItems[] | undefined {
-  const prev = queryClient.getQueryData<ListWithItems[]>(KEY);
-  queryClient.setQueryData<ListWithItems[]>(KEY, (old) => old?.map((l) => (l.id === listId ? fn(l) : l)));
+/** Snapshot of every cached lists query, for rollback. */
+type ListsSnapshot = [readonly unknown[], ListWithItems[] | undefined][];
+
+/**
+ * Patch the list in *every* cached lists query, not just the global one — the
+ * Lists tab caches ["lists","global"] while a trip's Lists sheet caches
+ * ["lists",tripId], and the same ListCard drives both.
+ */
+function patchList(listId: number, fn: (l: ListWithItems) => ListWithItems): ListsSnapshot {
+  const prev = queryClient.getQueriesData<ListWithItems[]>({ queryKey: KEY });
+  queryClient.setQueriesData<ListWithItems[]>({ queryKey: KEY }, (old) =>
+    old?.map((l) => (l.id === listId ? fn(l) : l)),
+  );
   return prev;
 }
+
+/** Stop any GET that's already in flight before writing an optimistic value.
+ * A fetch started *before* the write resolves *after* it and would otherwise
+ * write pre-write rows over the optimistic ones — the "it ticks, then flips
+ * back a few seconds later" bug. react-query dedupes, so the invalidate in
+ * onSettled would reuse that same stale fetch rather than correcting it. */
+const cancel = () => queryClient.cancelQueries({ queryKey: KEY });
 
 export function registerListMutations(): void {
   registerOfflineMutation<{ name: string; tripId?: number; tempId: number }, ListWithItems>({
@@ -94,7 +113,7 @@ export function registerListMutations(): void {
   });
 }
 
-const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lists"] });
+const invalidate = () => queryClient.invalidateQueries({ queryKey: KEY });
 
 export function useCreateList() {
   const m = useMutation<ListWithItems, Error, { name: string; tripId?: number; tempId: number }>({
@@ -107,7 +126,8 @@ export function useCreateList() {
 export function useAddItem() {
   const m = useMutation<void, Error, { listId: number; text: string }>({
     mutationKey: LIST_ADD_ITEM,
-    onMutate: ({ listId, text }) => {
+    onMutate: async ({ listId, text }) => {
+      await cancel();
       const item: ListItem = {
         id: nextTempId(),
         listId,
@@ -128,7 +148,8 @@ export function useAddItem() {
 export function useSetItemDone() {
   return useMutation<void, Error, { listId: number; itemId: number; done: boolean }>({
     mutationKey: LIST_SET_ITEM_DONE,
-    onMutate: ({ listId, itemId, done }) => {
+    onMutate: async ({ listId, itemId, done }) => {
+      await cancel();
       const prev = patchList(listId, (l) => ({
         ...l,
         items: l.items.map((it) => (it.id === itemId ? { ...it, done } : it)),
@@ -143,7 +164,8 @@ export function useSetItemDone() {
 export function useRemoveItem() {
   return useMutation<void, Error, { listId: number; itemId: number }>({
     mutationKey: LIST_REMOVE_ITEM,
-    onMutate: ({ listId, itemId }) => {
+    onMutate: async ({ listId, itemId }) => {
+      await cancel();
       const prev = patchList(listId, (l) => ({ ...l, items: l.items.filter((it) => it.id !== itemId) }));
       return { prev };
     },
@@ -155,7 +177,10 @@ export function useRemoveItem() {
 export function useRenameList() {
   return useMutation<void, Error, { listId: number; name: string }>({
     mutationKey: LIST_RENAME,
-    onMutate: ({ listId, name }) => ({ prev: patchList(listId, (l) => ({ ...l, name })) }),
+    onMutate: async ({ listId, name }) => {
+      await cancel();
+      return { prev: patchList(listId, (l) => ({ ...l, name })) };
+    },
     onError: (_e, _v, ctx) => restore(ctx),
     onSettled: invalidate,
   });
@@ -164,7 +189,8 @@ export function useRenameList() {
 export function useUpdateItemText() {
   return useMutation<void, Error, { listId: number; itemId: number; text: string }>({
     mutationKey: LIST_UPDATE_ITEM_TEXT,
-    onMutate: ({ listId, itemId, text }) => {
+    onMutate: async ({ listId, itemId, text }) => {
+      await cancel();
       const prev = patchList(listId, (l) => ({
         ...l,
         items: l.items.map((it) => (it.id === itemId ? { ...it, text } : it)),
@@ -179,7 +205,10 @@ export function useUpdateItemText() {
 export function useSetTrip() {
   return useMutation<void, Error, { listId: number; tripId: number | null }>({
     mutationKey: LIST_SET_TRIP,
-    onMutate: ({ listId, tripId }) => ({ prev: patchList(listId, (l) => ({ ...l, tripId })) }),
+    onMutate: async ({ listId, tripId }) => {
+      await cancel();
+      return { prev: patchList(listId, (l) => ({ ...l, tripId })) };
+    },
     onError: (_e, _v, ctx) => restore(ctx),
     onSettled: invalidate,
   });
@@ -188,12 +217,15 @@ export function useSetTrip() {
 export function useReorderLists() {
   return useMutation<void, Error, { listIds: number[] }>({
     mutationKey: LIST_REORDER_LISTS,
-    onMutate: ({ listIds }) => {
-      const prev = queryClient.getQueryData<ListWithItems[]>(KEY);
-      queryClient.setQueryData<ListWithItems[]>(KEY, (old) => {
+    onMutate: async ({ listIds }) => {
+      await cancel();
+      const prev = queryClient.getQueriesData<ListWithItems[]>({ queryKey: KEY });
+      queryClient.setQueriesData<ListWithItems[]>({ queryKey: KEY }, (old) => {
         if (!old) return old;
         const byId = new Map(old.map((l) => [l.id, l]));
-        return listIds.map((id) => byId.get(id)).filter((l): l is ListWithItems => !!l);
+        // A trip-scoped cache holds a subset of listIds — keep only what it has.
+        const ordered = listIds.map((id) => byId.get(id)).filter((l): l is ListWithItems => !!l);
+        return ordered.length === old.length ? ordered : old;
       });
       return { prev };
     },
@@ -205,7 +237,8 @@ export function useReorderLists() {
 export function useReorderItems() {
   return useMutation<void, Error, { listId: number; itemIds: number[] }>({
     mutationKey: LIST_REORDER,
-    onMutate: ({ listId, itemIds }) => {
+    onMutate: async ({ listId, itemIds }) => {
+      await cancel();
       const prev = patchList(listId, (l) => {
         const byId = new Map(l.items.map((i) => [i.id, i]));
         return { ...l, items: itemIds.map((id) => byId.get(id)).filter((i): i is ListItem => !!i) };
@@ -225,6 +258,6 @@ export function useResetList() {
 }
 
 function restore(ctx: unknown) {
-  const c = ctx as { prev?: ListWithItems[] } | undefined;
-  if (c?.prev) queryClient.setQueryData(KEY, c.prev);
+  const c = ctx as { prev?: ListsSnapshot } | undefined;
+  for (const [key, data] of c?.prev ?? []) queryClient.setQueryData(key, data);
 }
