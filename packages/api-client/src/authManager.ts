@@ -79,10 +79,23 @@ export class AuthManager {
     }
     if (!res.ok) {
       // A reachable server that answers 401/403 means our refresh token is truly
-      // dead (expired past 30d, or revoked) — the one case that logs us out.
+      // dead (expired past 30d, or revoked). Before treating that as logged out,
+      // try the passwordless trusted-network session — on LAN or Tailscale it
+      // succeeds, and this is precisely why closing and reopening the app used to
+      // "fix" a spurious logout: bootstrap() has always had this fallback, while
+      // the runtime path did not, so one bad refresh mid-session dropped the user
+      // on the login screen with a perfectly good session a restart away.
       if (res.status === 401 || res.status === 403) {
-        this.notify(false);
-        throw new AuthRejectedError();
+        // Logged so this stops being invisible: with the fallback in place the
+        // recovery is silent, and without a trace we'd never learn how often the
+        // refresh token is being rejected in the first place.
+        console.warn(`[auth] refresh rejected (${res.status}); trying trusted-network session`);
+        try {
+          return await this.trustedNetworkSession();
+        } catch {
+          this.notify(false);
+          throw new AuthRejectedError();
+        }
       }
       // 5xx / other: server is up but unhappy — treat as transient, don't log out.
       throw new NetworkUnreachableError();
@@ -125,8 +138,10 @@ export class AuthManager {
         // No stored token and offline — nothing we can do until reconnect.
         return false;
       }
-      // AuthRejectedError (or anything else): try the trusted-network session,
-      // then give up.
+      // AuthRejectedError already means doRefresh tried the trusted-network
+      // session and it failed too, so there is nothing left to fall back to.
+      if (err instanceof AuthRejectedError) return false;
+      // Anything else (e.g. a malformed refresh response) hasn't tried it yet.
       try {
         await this.trustedNetworkSession();
         return true;
@@ -136,13 +151,22 @@ export class AuthManager {
     }
   }
 
-  private async trustedNetworkSession(): Promise<void> {
+  /** Passwordless auto-login on the trusted home network (LAN or Tailscale).
+   * Returns the new access token so a caller recovering from a dead refresh
+   * token can carry on with the request it was retrying. */
+  private async trustedNetworkSession(): Promise<string> {
     const base = await this.baseUrl.getBaseUrl();
     const res = await fetch(`${base}/api/auth/session`, { method: "POST", credentials: "include" });
     if (!res.ok) throw new Error("no trusted session");
-    const data = (await res.json()) as { accessToken: string };
+    const data = (await res.json()) as { accessToken: string; refreshToken?: string };
     this.tokenStore.setAccessToken(data.accessToken);
+    // Persist the fresh refresh token too. Skipping this (the original bug) left
+    // mobile's SecureStore holding the *previous* token after every trusted
+    // session, so the store and the cookie drifted apart and the next refresh
+    // depended on which one the server happened to prefer.
+    if (data.refreshToken) await this.tokenStore.setRefreshToken(data.refreshToken);
     this.notify(true);
+    return data.accessToken;
   }
 
   startProactiveRefresh(intervalMs = 10 * 60 * 1000): void {
