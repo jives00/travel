@@ -14,7 +14,7 @@ import { useTheme } from "@/lib/theme-context";
 // arc-based teardrop path silently failed to render as intended). The artwork
 // itself comes from @travel/ui-tokens so the mobile map can be kept in step.
 //
-// Unlike the /map overview page, these pins aren't one shape in nine colors:
+// Unlike the /map overview page, these pins aren't one teardrop in nine colors:
 // hotel/transport share a red circle and food/nightlife share a dark green one,
 // distinguished only by the glyph inside.
 function pinIconUrl(svg: string): string {
@@ -235,11 +235,8 @@ export function TripMap({
 
     const bounds = new google.maps.LatLngBounds();
 
-    // Light-theme fills regardless of the page theme, preserving the previous
-    // behavior: the dark map style already darkens everything around the pins,
-    // so recoloring the pins too only muddies them against it.
     function pinIcon(group: MapPinGroup, isPrivate = false) {
-      const art = mapPinSvg(mapPinStyleFor(group, isPrivate), "light");
+      const art = mapPinSvg(mapPinStyleFor(group, isPrivate));
       return {
         url: pinIconUrl(art.svg),
         scaledSize: new google.maps.Size(art.width, art.height),

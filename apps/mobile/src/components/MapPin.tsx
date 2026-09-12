@@ -13,9 +13,7 @@ const GLYPH_ICON: Record<MapPinGlyph, keyof typeof Ionicons.glyphMap> = {
   question: "help",
 };
 
-const CIRCLE_SIZE = 26;
-const PIN_WIDTH = 22;
-const PIN_HEIGHT = 30;
+const SIZE = 26;
 
 /**
  * One trip-map marker, drawn as a real view rather than a `pinColor`.
@@ -26,36 +24,13 @@ const PIN_HEIGHT = 30;
  * marker itself, which is the only way to get a glyph on Android.
  */
 export function MapPin({ style }: { style: MapPinStyle }) {
-  const color = style.color.light;
-
-  if (style.shape === "pin") {
-    // The teardrop: a rotated rounded square makes a point at the bottom without
-    // needing react-native-svg for one shape.
-    return (
-      <View style={{ width: PIN_WIDTH, height: PIN_HEIGHT, alignItems: "center" }}>
-        <View
-          style={{
-            width: PIN_WIDTH,
-            height: PIN_WIDTH,
-            borderRadius: PIN_WIDTH / 2,
-            borderBottomRightRadius: 1,
-            backgroundColor: color,
-            borderWidth: 1.5,
-            borderColor: "#fff",
-            transform: [{ rotate: "45deg" }],
-          }}
-        />
-      </View>
-    );
-  }
-
   return (
     <View
       style={{
-        width: CIRCLE_SIZE,
-        height: CIRCLE_SIZE,
-        borderRadius: CIRCLE_SIZE / 2,
-        backgroundColor: color,
+        width: SIZE,
+        height: SIZE,
+        borderRadius: SIZE / 2,
+        backgroundColor: style.color,
         borderWidth: 1.5,
         borderColor: "#fff",
         alignItems: "center",

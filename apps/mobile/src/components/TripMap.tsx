@@ -24,9 +24,9 @@ function regionForPins(pins: { lat: number; lng: number }[]): Region | undefined
   };
 }
 
-// react-native-maps anchors are fractions of the marker's own box.
-const PIN_ANCHOR = { x: 0.5, y: 1 };
-const CIRCLE_ANCHOR = { x: 0.5, y: 0.5 };
+// Fractions of the marker's own box — every pin is a circle sitting over the
+// point it marks, so this is its center.
+const PIN_ANCHOR = { x: 0.5, y: 0.5 };
 
 function FilterPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -224,8 +224,7 @@ export function TripMap({ tripId }: { tripId: number }) {
                 coordinate={{ latitude: p.lat, longitude: p.lng }}
                 title={p.name}
                 description={p.address ?? undefined}
-                // A circle pin marks its own center; a teardrop points at its tip.
-                anchor={mapPinStyleFor(group, privatePlaceIds.has(p.id)).shape === "pin" ? PIN_ANCHOR : CIRCLE_ANCHOR}
+                anchor={PIN_ANCHOR}
                 tracksViewChanges={tracksViewChanges}
               >
                 <MapPin style={mapPinStyleFor(group, privatePlaceIds.has(p.id))} />
@@ -240,7 +239,7 @@ export function TripMap({ tripId }: { tripId: number }) {
                 coordinate={{ latitude: b.lat, longitude: b.lng }}
                 title={b.title}
                 description={b.address ?? undefined}
-                anchor={mapPinStyleFor(group, privateBookingIds.has(b.id)).shape === "pin" ? PIN_ANCHOR : CIRCLE_ANCHOR}
+                anchor={PIN_ANCHOR}
                 tracksViewChanges={tracksViewChanges}
               >
                 <MapPin style={mapPinStyleFor(group, privateBookingIds.has(b.id))} />

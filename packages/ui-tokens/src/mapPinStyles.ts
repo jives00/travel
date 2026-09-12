@@ -1,19 +1,25 @@
-import type { ThemedColor } from "./categories";
 import type { MapPinGroup } from "./mapPinColors";
 
 /**
- * How a trip-map pin actually looks: shape, fill, and the white glyph inside it.
+ * How a trip-map pin actually looks: fill color and the white glyph inside it.
  *
  * Deliberately coarser than MAP_PIN_COLORS' nine tag colors. This mirrors the
  * scheme used in the owner's own Google Maps saved lists, so the app's map and
  * the mental model built up in Google Maps agree: hotel and transport are both
  * red, food and nightlife are both dark green, and everything else that's just
- * "somewhere we're going" is one light-green pin.
+ * "somewhere we're going" is one bright green dot.
  *
  * Because two pairs share a fill (red, dark green), **the glyph is the only
  * thing distinguishing them** — a color-only renderer (react-native-maps'
  * `pinColor`, a plain Symbol path) cannot express this scheme. Both platforms
  * must draw the glyph.
+ *
+ * Every pin is a circle: they all mark a point, and the teardrop the default pin
+ * used to be was the only thing needing a second shape, a second anchor rule,
+ * and (on Android, with no SVG) a rotated-square hack to fake a point. Colors
+ * are flat rather than ThemedColor because both renderers only ever read the
+ * light value — the dark map style already darkens everything around the pins,
+ * so recoloring the pins too only muddies them.
  */
 
 export const MAP_PIN_GLYPHS = ["house", "bicycle", "cutlery", "cocktail", "question"] as const;
@@ -30,31 +36,28 @@ export const MAP_PIN_STYLE_KEYS = [
 export type MapPinStyleKey = (typeof MAP_PIN_STYLE_KEYS)[number];
 
 export interface MapPinStyle {
-  /** "pin" is the classic teardrop (24x36, anchored at its tip); "circle" is a
-   * 24x24 dot anchored at its center. */
-  shape: "pin" | "circle";
-  color: ThemedColor;
-  /** null = no glyph, the shape alone carries the meaning (the default pin). */
+  color: string;
+  /** null = no glyph; the fill alone carries the meaning (the default pin). */
   glyph: MapPinGlyph | null;
 }
 
-const RED: ThemedColor = { light: "#d93a33", dark: "#e4574f" };
-const DARK_GREEN: ThemedColor = { light: "#0f6b3a", dark: "#14804a" };
-const LIGHT_GREEN: ThemedColor = { light: "#6fbf4a", dark: "#7ecf5c" };
-const DARK_BLUE: ThemedColor = { light: "#1e3a8a", dark: "#2b4bad" };
+const RED = "#a52714";
+const DARK_GREEN = "#097138";
+const BRIGHT_GREEN = "#56fb7a";
+const DARK_BLUE = "#1e3a8a";
 
 export const MAP_PIN_STYLES: Record<MapPinStyleKey, MapPinStyle> = {
   // Anything we're going to that isn't food, a bed, or a way of getting there.
-  // The only teardrop in the set, so "ordinary stop" reads instantly.
-  default: { shape: "pin", color: LIGHT_GREEN, glyph: null },
-  food_drinks: { shape: "circle", color: DARK_GREEN, glyph: "cutlery" },
-  lodging: { shape: "circle", color: RED, glyph: "house" },
-  nightlife: { shape: "circle", color: DARK_GREEN, glyph: "cocktail" },
+  // The only glyphless pin, so "ordinary stop" reads at a glance.
+  default: { color: BRIGHT_GREEN, glyph: null },
+  food_drinks: { color: DARK_GREEN, glyph: "cutlery" },
+  lodging: { color: RED, glyph: "house" },
+  nightlife: { color: DARK_GREEN, glyph: "cocktail" },
   // Overrides the category entirely: the point of a private item is that a
   // glance at the map doesn't reveal what it is, so it must not keep a glyph
   // that gives the game away.
-  private: { shape: "circle", color: DARK_BLUE, glyph: "question" },
-  transit: { shape: "circle", color: RED, glyph: "bicycle" },
+  private: { color: DARK_BLUE, glyph: "question" },
+  transit: { color: RED, glyph: "bicycle" },
 };
 
 /** Every place tag / booking type collapses into one of the six styles above.
@@ -80,7 +83,7 @@ export function mapPinStyleFor(group: MapPinGroup | string, isPrivate = false): 
   return MAP_PIN_STYLES[mapPinStyleKeyFor(group, isPrivate)];
 }
 
-/** White glyph artwork, drawn on a 24x24 grid and scaled down to sit inside a
+/** White glyph artwork, drawn on a 24x24 grid and scaled down to sit inside the
  * circle. Kept as raw SVG fragments (not path strings) because a bicycle needs
  * its wheels — web renders these directly; mobile draws the native equivalent
  * from its own icon font, so these two must be kept visually in step by hand. */
@@ -109,36 +112,19 @@ export interface MapPinSvg {
   svg: string;
   width: number;
   height: number;
-  /** Where the artwork touches the coordinate it marks — a teardrop points at
-   * its tip, a circle sits over its center. */
+  /** A circle sits over the coordinate it marks, so the anchor is its center. */
   anchorX: number;
   anchorY: number;
 }
 
-const TEARDROP =
-  "M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24s12-15 12-24C24 5.373 18.627 0 12 0z";
-
 /** Renders one pin as a standalone SVG document, for use as an <img>/data-URI
- * map marker. Glyph is scaled to ~14px and centered inside the circle. */
-export function mapPinSvg(style: MapPinStyle, theme: "light" | "dark" = "light"): MapPinSvg {
-  const fill = style.color[theme];
-  if (style.shape === "pin") {
-    return {
-      svg:
-        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">' +
-        `<path d="${TEARDROP}" fill="${fill}" stroke="#ffffff" stroke-width="1.5"/>` +
-        "</svg>",
-      width: 24,
-      height: 36,
-      anchorX: 12,
-      anchorY: 36,
-    };
-  }
+ * map marker. Glyph is scaled to ~14px and centered. */
+export function mapPinSvg(style: MapPinStyle): MapPinSvg {
   const glyph = style.glyph ? GLYPH_SVG[style.glyph] : "";
   return {
     svg:
       '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
-      `<circle cx="12" cy="12" r="11" fill="${fill}" stroke="#ffffff" stroke-width="1.5"/>` +
+      `<circle cx="12" cy="12" r="11" fill="${style.color}" stroke="#ffffff" stroke-width="1.5"/>` +
       (glyph ? `<g transform="translate(5.2 5.2) scale(0.567)">${glyph}</g>` : "") +
       "</svg>",
     width: 24,
