@@ -2,22 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MAP_PIN_COLORS, DARK_MAP_STYLE, type MapPinGroup } from "@travel/ui-tokens";
+import { DARK_MAP_STYLE, mapPinStyleFor, mapPinSvg, type MapPinGroup } from "@travel/ui-tokens";
 import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { infoWindowHtml } from "@/lib/mapInfoWindow";
 import { useTheme } from "@/lib/theme-context";
 
-// Same inline-SVG pin icon as the standalone /map page's MapView — a real
-// <img>-based icon, not a google.maps.Symbol path (Symbol.path only supports
-// a limited SVG subset with no elliptical arcs, which is why an earlier
-// arc-based teardrop path silently failed to render as intended).
-function pinIconUrl(color: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">
-    <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24s12-15 12-24C24 5.373 18.627 0 12 0z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
-    <circle cx="12" cy="12" r="4.5" fill="#ffffff" fill-opacity="0.9"/>
-  </svg>`;
+// A real <img>-based icon, not a google.maps.Symbol path (Symbol.path only
+// supports a limited SVG subset with no elliptical arcs, which is why an earlier
+// arc-based teardrop path silently failed to render as intended). The artwork
+// itself comes from @travel/ui-tokens so the mobile map can be kept in step.
+//
+// Unlike the /map overview page, these pins aren't one shape in nine colors:
+// hotel/transport share a red circle and food/nightlife share a dark green one,
+// distinguished only by the glyph inside.
+function pinIconUrl(svg: string): string {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
@@ -153,6 +153,18 @@ export function TripMap({
     };
   }, []);
 
+  // A booking can be scheduled as a private itinerary item too (a surprise
+  // dinner), so it gets the same treatment places do rather than staying
+  // visible when private items are meant to be hidden.
+  const privateBookingIds = useMemo(
+    () =>
+      new Set(
+        (items ?? [])
+          .filter((i) => i.itemType === "booking" && i.isPrivate && i.bookingId != null)
+          .map((i) => i.bookingId as number),
+      ),
+    [items],
+  );
   // Any booking can carry its own address/lat/lng directly (see
   // booking-fields.tsx's LocationSearch) — no library Place link required, so
   // they're plotted independently of `places`, not looked up through one. A
@@ -160,9 +172,10 @@ export function TripMap({
   const bookingMarkers = useMemo(
     () =>
       (bookings ?? []).filter(
-        (b): b is typeof b & { lat: number; lng: number } => b.lat != null && b.lng != null && !b.completed,
+        (b): b is typeof b & { lat: number; lng: number } =>
+          b.lat != null && b.lng != null && !b.completed && (showPrivate || !privateBookingIds.has(b.id)),
       ),
-    [bookings],
+    [bookings, showPrivate, privateBookingIds],
   );
   // Bookings aren't category-filtered (see filteredPlaces above) but they are
   // still narrowed by city, so a "just this leg" filter doesn't leave a
@@ -222,12 +235,15 @@ export function TripMap({
 
     const bounds = new google.maps.LatLngBounds();
 
-    function pinIcon(group: MapPinGroup) {
-      const color = MAP_PIN_COLORS[group]?.light ?? MAP_PIN_COLORS.other.light;
+    // Light-theme fills regardless of the page theme, preserving the previous
+    // behavior: the dark map style already darkens everything around the pins,
+    // so recoloring the pins too only muddies them against it.
+    function pinIcon(group: MapPinGroup, isPrivate = false) {
+      const art = mapPinSvg(mapPinStyleFor(group, isPrivate), "light");
       return {
-        url: pinIconUrl(color),
-        scaledSize: new google.maps.Size(24, 36),
-        anchor: new google.maps.Point(12, 36),
+        url: pinIconUrl(art.svg),
+        scaledSize: new google.maps.Size(art.width, art.height),
+        anchor: new google.maps.Point(art.anchorX, art.anchorY),
       };
     }
 
@@ -238,7 +254,7 @@ export function TripMap({
         position,
         map,
         title: place.name,
-        icon: pinIcon(mapPinGroupForTag(place.primaryTag) as MapPinGroup),
+        icon: pinIcon(mapPinGroupForTag(place.primaryTag) as MapPinGroup, privatePlaceIds.has(place.id)),
       });
       marker.addListener("click", () => {
         infoWindow.setContent(
@@ -258,7 +274,7 @@ export function TripMap({
         position,
         map,
         title: booking.title,
-        icon: pinIcon(mapPinGroupForBookingType(booking.type) as MapPinGroup),
+        icon: pinIcon(mapPinGroupForBookingType(booking.type) as MapPinGroup, privateBookingIds.has(booking.id)),
       });
       marker.addListener("click", () => {
         infoWindow.setContent(infoWindowHtml({ name: booking.title, address: booking.address, lat: booking.lat, lng: booking.lng }));
@@ -270,7 +286,7 @@ export function TripMap({
     }
 
     if (plotted > 0) map.fitBounds(bounds);
-  }, [scriptLoaded, filteredPlaces, filteredBookingMarkers]);
+  }, [scriptLoaded, filteredPlaces, filteredBookingMarkers, privatePlaceIds, privateBookingIds]);
 
   // Bounce the marker for whichever place is currently hovered in the
   // itinerary list, so the two views visibly link up.

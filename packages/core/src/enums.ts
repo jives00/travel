@@ -50,10 +50,15 @@ export function enumLabel(entries: EnumEntry[], key: string): string {
   return entries.find((e) => e.key === key)?.label ?? key;
 }
 
-// Map-pin color grouping for bookings, matching the group keys in
-// packages/ui-tokens' MAP_PIN_COLORS — lets a booking's icon circle (in the
-// itinerary list) and map marker share one color scheme per type, the same
-// way a place's tag drives both via mapPinGroupForTag.
+// Pin grouping for bookings, matching the group keys in packages/ui-tokens'
+// MAP_PIN_COLORS — the same way a place's tag drives both via mapPinGroupForTag.
+//
+// These groups now feed two different-grained schemes: MAP_PIN_COLORS' nine
+// colors still drive the itinerary list's icon circles, while the trip map
+// collapses the same groups into MAP_PIN_STYLES' six shape+glyph pins. So a
+// booking's list circle and its map pin no longer match color-for-color; both
+// still derive from this one mapping, which is what keeps them consistent in
+// meaning.
 const BOOKING_TYPE_TO_MAP_PIN_GROUP: Record<string, string> = {
   flight: "transit",
   hotel: "lodging",

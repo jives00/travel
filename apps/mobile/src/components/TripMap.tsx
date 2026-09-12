@@ -3,9 +3,10 @@ import { View, Text, Pressable } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { useQuery } from "@tanstack/react-query";
 import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
-import { MAP_PIN_COLORS, DARK_MAP_STYLE, type MapPinGroup } from "@travel/ui-tokens";
+import { DARK_MAP_STYLE, mapPinStyleFor, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
 import { useTheme } from "../lib/theme";
+import { MapPin } from "./MapPin";
 
 function regionForPins(pins: { lat: number; lng: number }[]): Region | undefined {
   if (pins.length === 0) return undefined;
@@ -22,6 +23,10 @@ function regionForPins(pins: { lat: number; lng: number }[]): Region | undefined
     longitudeDelta: Math.max(0.05, (maxLng - minLng) * 1.4),
   };
 }
+
+// react-native-maps anchors are fractions of the marker's own box.
+const PIN_ANCHOR = { x: 0.5, y: 1 };
+const CIRCLE_ANCHOR = { x: 0.5, y: 0.5 };
 
 function FilterPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -44,12 +49,43 @@ export function TripMap({ tripId }: { tripId: number }) {
   const { data: items } = useQuery(travelApi.queries.itineraryQuery(tripId));
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { data: settings } = useQuery(travelApi.queries.settingsQuery());
   const { theme } = useTheme();
   const mapRef = useRef<MapView>(null);
 
   const [cityFilter, setCityFilter] = useState<number | "all">("all");
   const [includeDayTrips, setIncludeDayTrips] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  // Custom marker views need one render pass tracked before Android has a
+  // bitmap to draw, or the markers come out blank; leaving tracking on forever
+  // re-snapshots every marker every frame and makes panning crawl. So: track
+  // briefly whenever the pin set changes, then stop.
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+  // Same rule web's trip-map applies: a place or booking scheduled as a private
+  // itinerary item drops off the map when "show private items" is off, and when
+  // it IS on it renders as a featureless "?" pin rather than advertising its
+  // category. Defaults to hidden while settings load — briefly under-showing
+  // beats a flash of private markers.
+  const showPrivate = settings?.showPrivateItems ?? false;
+  const privatePlaceIds = useMemo(
+    () =>
+      new Set(
+        (items ?? [])
+          .filter((i) => i.itemType === "place" && i.isPrivate && i.placeId != null)
+          .map((i) => i.placeId as number),
+      ),
+    [items],
+  );
+  const privateBookingIds = useMemo(
+    () =>
+      new Set(
+        (items ?? [])
+          .filter((i) => i.itemType === "booking" && i.isPrivate && i.bookingId != null)
+          .map((i) => i.bookingId as number),
+      ),
+    [items],
+  );
 
   // A place checked off done/visited drops off the map, same as the
   // itinerary list dropping it to the bottom.
@@ -64,8 +100,15 @@ export function TripMap({ tripId }: { tripId: number }) {
   );
 
   const visiblePlaces = useMemo(
-    () => (places ?? []).filter((p) => p.lat != null && p.lng != null && !completedPlaceIds.has(p.id)),
-    [places, completedPlaceIds],
+    () =>
+      (places ?? []).filter(
+        (p) =>
+          p.lat != null &&
+          p.lng != null &&
+          !completedPlaceIds.has(p.id) &&
+          (showPrivate || !privatePlaceIds.has(p.id)),
+      ),
+    [places, completedPlaceIds, showPrivate, privatePlaceIds],
   );
 
   // Any booking can carry its own address/lat/lng directly — plotted
@@ -74,9 +117,13 @@ export function TripMap({ tripId }: { tripId: number }) {
   const visibleBookings = useMemo(
     () =>
       (bookings ?? []).filter(
-        (b): b is typeof b & { lat: number; lng: number } => b.lat != null && b.lng != null && !b.completed,
+        (b): b is typeof b & { lat: number; lng: number } =>
+          b.lat != null &&
+          b.lng != null &&
+          !b.completed &&
+          (showPrivate || !privateBookingIds.has(b.id)),
       ),
-    [bookings],
+    [bookings, showPrivate, privateBookingIds],
   );
 
   // Which leg(s) each place is scheduled onto, from the itinerary — a place
@@ -135,6 +182,14 @@ export function TripMap({ tripId }: { tripId: number }) {
     if (region) mapRef.current?.animateToRegion(region, 500);
   }, [mapReady, filteredPins, filteredBookingPins]);
 
+  // Re-arm tracking whenever the visible pins change (filters, data arriving),
+  // then switch it off once Android has had a pass to snapshot them.
+  useEffect(() => {
+    setTracksViewChanges(true);
+    const timer = setTimeout(() => setTracksViewChanges(false), 600);
+    return () => clearTimeout(timer);
+  }, [filteredPins, filteredBookingPins]);
+
   function resetView() {
     setCityFilter("all");
     setIncludeDayTrips(false);
@@ -169,8 +224,12 @@ export function TripMap({ tripId }: { tripId: number }) {
                 coordinate={{ latitude: p.lat, longitude: p.lng }}
                 title={p.name}
                 description={p.address ?? undefined}
-                pinColor={MAP_PIN_COLORS[group]?.light ?? "#2a78d6"}
-              />
+                // A circle pin marks its own center; a teardrop points at its tip.
+                anchor={mapPinStyleFor(group, privatePlaceIds.has(p.id)).shape === "pin" ? PIN_ANCHOR : CIRCLE_ANCHOR}
+                tracksViewChanges={tracksViewChanges}
+              >
+                <MapPin style={mapPinStyleFor(group, privatePlaceIds.has(p.id))} />
+              </Marker>
             );
           })}
           {filteredBookingPins.map((b) => {
@@ -181,8 +240,11 @@ export function TripMap({ tripId }: { tripId: number }) {
                 coordinate={{ latitude: b.lat, longitude: b.lng }}
                 title={b.title}
                 description={b.address ?? undefined}
-                pinColor={MAP_PIN_COLORS[group]?.light ?? "#2a78d6"}
-              />
+                anchor={mapPinStyleFor(group, privateBookingIds.has(b.id)).shape === "pin" ? PIN_ANCHOR : CIRCLE_ANCHOR}
+                tracksViewChanges={tracksViewChanges}
+              >
+                <MapPin style={mapPinStyleFor(group, privateBookingIds.has(b.id))} />
+              </Marker>
             );
           })}
         </MapView>

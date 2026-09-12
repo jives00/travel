@@ -4,3 +4,4 @@ export * from "./chrome";
 export * from "./hex";
 export * from "./spacing";
 export * from "./googleMapDarkStyle";
+export * from "./mapPinStyles";

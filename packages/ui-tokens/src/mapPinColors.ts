@@ -1,9 +1,15 @@
 import type { ThemedColor } from "./categories";
 
-/** Map-pin colors, one per packages/core place tag (8 values) plus a
- * dedicated color for hotel bookings. Deliberately separate from
- * CATEGORY_COLORS (generic UI chrome tokens) — this is a purpose-built
- * palette for what reads well as dots on a map. */
+/** One color per packages/core place tag (8 values) plus a dedicated color for
+ * hotel bookings. Deliberately separate from CATEGORY_COLORS (generic UI chrome
+ * tokens) — this is a purpose-built palette for what reads well as dots.
+ *
+ * Despite the name this no longer colors the trip map: those pins come from
+ * MAP_PIN_STYLES (see mapPinStyles.ts), which collapses these nine groups into
+ * six shape+glyph styles. What still uses this palette is the itinerary list's
+ * per-item icon circles, where nine distinguishable colors are an asset rather
+ * than the clutter they were on a map. MAP_PIN_GROUPS remains the shared
+ * vocabulary both schemes are keyed by. */
 export const MAP_PIN_GROUPS = [
   "activity",
   "day_trip",
