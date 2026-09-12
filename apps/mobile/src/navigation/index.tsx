@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { STATUS_BAR_BG } from "../components/ui";
+import { BootScreen } from "../components/BootScreen";
 import { useAuth } from "../contexts/AuthContext";
 import { LoginScreen } from "../screens/LoginScreen";
 import { HomeScreen } from "../screens/HomeScreen";
@@ -114,8 +115,10 @@ function MainTabs() {
 }
 
 export function RootNavigator() {
-  const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return null;
+  const { isAuthenticated, isLoading, retry } = useAuth();
+  // Never render nothing here: a bootstrap that failed to settle used to leave
+  // this returning null forever, which is indistinguishable from a crashed app.
+  if (isLoading) return <BootScreen onRetry={retry} />;
 
   return (
     <NavigationContainer>

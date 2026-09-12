@@ -15,6 +15,7 @@ import { queryClient, persistOptions } from "./src/lib/queryClient";
 import { startConnectivityManager } from "./src/lib/connectivity";
 import { loadTempIdCounter, resumeQueuedMutations } from "./src/lib/mutations";
 import UpdateBanner from "./src/components/UpdateBanner";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useUpdateStore } from "./src/store/update";
 // Imported for its side effect: registers every offline mutation's default
 // behavior (setMutationDefaults) so paused mutations can replay after a cold
@@ -31,11 +32,27 @@ export default function App() {
     // has explicitly switched to dark — the opposite default from web. NativeWind's
     // colorScheme otherwise follows the system setting, which we don't want here.
     void (async () => {
-      const [stored] = await Promise.all([AsyncStorage.getItem(THEME_KEY), loadTempIdCounter()]);
-      colorScheme.set(stored === "dark" ? "dark" : "light");
-      // Wire NetInfo + NAS-reachability into onlineManager before the tree mounts,
-      // so the first render already reflects real connectivity.
-      startConnectivityManager();
+      // Every step here is best-effort: `ready` gates the entire tree, so a
+      // rejection would render nothing at all, forever. Theme and temp-id
+      // counter both have working defaults — losing them is cosmetic, whereas
+      // not mounting is fatal.
+      try {
+        const [stored] = await Promise.all([AsyncStorage.getItem(THEME_KEY), loadTempIdCounter()]);
+        colorScheme.set(stored === "dark" ? "dark" : "light");
+      } catch (err) {
+        console.error("[App] storage init failed, using defaults", err);
+        colorScheme.set("light");
+      }
+      // Separate try: connectivity must be wired even if storage failed above,
+      // or onlineManager keeps react-query's default "always online" and every
+      // offline mutation errors instead of queueing.
+      try {
+        // Wire NetInfo + NAS-reachability into onlineManager before the tree mounts,
+        // so the first render already reflects real connectivity.
+        startConnectivityManager();
+      } catch (err) {
+        console.error("[App] connectivity manager failed to start", err);
+      }
       setReady(true);
     })();
   }, []);
@@ -80,10 +97,15 @@ export default function App() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <StatusBar style="light" />
-          <UpdateBanner />
-          <AuthProvider>
-            <RootNavigator />
-          </AuthProvider>
+          {/* Inside SafeAreaProvider so the fallback can use insets, but above
+              AuthProvider/navigator so a throw in either is caught rather than
+              silently unmounting the tree to an empty window. */}
+          <ErrorBoundary>
+            <UpdateBanner />
+            <AuthProvider>
+              <RootNavigator />
+            </AuthProvider>
+          </ErrorBoundary>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </PersistQueryClientProvider>

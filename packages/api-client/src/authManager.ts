@@ -108,7 +108,16 @@ export class AuthManager {
       if (err instanceof NetworkUnreachableError) {
         // Can't reach home. If we have a stored refresh token, we're still
         // "logged in" — run off cache; a later reconnect will refresh for real.
-        const hasRefresh = (await this.tokenStore.getRefreshToken()) != null;
+        // Guarded: mobile's store is expo-secure-store, whose read throws when
+        // the keystore entry can't be decrypted. An exception escaping
+        // bootstrap() leaves the caller's loading flag pinned forever, so an
+        // unreadable token has to read as "no token" rather than as a crash.
+        let hasRefresh = false;
+        try {
+          hasRefresh = (await this.tokenStore.getRefreshToken()) != null;
+        } catch {
+          hasRefresh = false;
+        }
         if (hasRefresh) {
           this.notify(true);
           return true;
