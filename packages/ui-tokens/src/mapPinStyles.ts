@@ -7,7 +7,7 @@ import type { MapPinGroup } from "./mapPinColors";
  * scheme used in the owner's own Google Maps saved lists, so the app's map and
  * the mental model built up in Google Maps agree: hotel and transport are both
  * red, food and nightlife are both dark green, and everything else that's just
- * "somewhere we're going" is one bright green dot.
+ * "somewhere we're going" is one amber dot.
  *
  * Because two pairs share a fill (red, dark green), **the glyph is the only
  * thing distinguishing them** — a color-only renderer (react-native-maps'
@@ -43,13 +43,16 @@ export interface MapPinStyle {
 
 const RED = "#a52714";
 const DARK_GREEN = "#097138";
-const BRIGHT_GREEN = "#56fb7a";
+const AMBER = "#f29900";
 const DARK_BLUE = "#1e3a8a";
 
 export const MAP_PIN_STYLES: Record<MapPinStyleKey, MapPinStyle> = {
-  // Anything we're going to that isn't food, a bed, or a way of getting there.
-  // The only glyphless pin, so "ordinary stop" reads at a glance.
-  default: { color: BRIGHT_GREEN, glyph: null },
+  // Anything we're going to that isn't food, a bed, or a way of getting there —
+  // the most common pin by far, and the only glyphless one, so its color has to
+  // carry it alone. Amber is the one strong slot the other four don't use, and
+  // unlike a green it gains contrast against Google's pale beige and park green
+  // rather than dissolving into them.
+  default: { color: AMBER, glyph: null },
   food_drinks: { color: DARK_GREEN, glyph: "cutlery" },
   lodging: { color: RED, glyph: "house" },
   nightlife: { color: DARK_GREEN, glyph: "cocktail" },
