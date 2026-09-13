@@ -1,10 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
-  BOOKING_TYPES,
-  PLACE_TAGS,
   buildKmlLayer,
   createZip,
-  enumLabel,
   groupByLeg,
   kmlFileName,
   mapPinGroupForBookingType,
@@ -32,6 +29,7 @@ interface ExportPlaceRow {
   lat: number;
   lng: number;
   rating: number | null;
+  userRatingsTotal: number | null;
   website: string | null;
   description: string | null;
   note: string | null;
@@ -58,6 +56,7 @@ interface ScheduleRow {
  * location indirectly through `place_id`, hence the COALESCE in the query. */
 interface ExportBookingRow {
   id: number;
+  googlePlaceId: string | null;
   type: string;
   title: string;
   legId: number | null;
@@ -71,8 +70,6 @@ interface ExportBookingRow {
   lng: number;
   notes: string | null;
 }
-
-const TAG_LABELS = new Map(PLACE_TAGS.map((t) => [t.key, t.label]));
 
 // Layers are grouped by city, so every layer carries the full per-category set
 // of styles and each pin picks its own — a city layer then reads much like the
@@ -136,23 +133,56 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function placeToPoint(row: ExportPlaceRow): KmlPoint {
-  const lines: string[] = [];
-  if (row.address) lines.push(escapeHtml(row.address));
-  if (row.description) lines.push(escapeHtml(row.description));
-  if (row.note) lines.push(`<b>Note:</b> ${escapeHtml(row.note)}`);
-  if (row.rating != null) lines.push(`Rating: ${row.rating}`);
-  if (row.website) {
-    const href = encodeURI(row.website);
-    lines.push(`<a href="${escapeHtml(href)}">${escapeHtml(row.website)}</a>`);
-  }
-  // Deep-links the pin back to the real Google listing, which carries hours,
-  // photos and reviews that no import format can bring across.
-  if (row.googlePlaceId) {
-    const url = `https://www.google.com/maps/search/?api=1&query=${row.lat},${row.lng}&query_place_id=${encodeURIComponent(row.googlePlaceId)}`;
-    lines.push(`<a href="${escapeHtml(url)}">Open in Google Maps</a>`);
-  }
+/** The info card body. Sections are separated by a blank line rather than a
+ * single break: this block is the only prose on the card, and My Maps renders
+ * it as one unbroken run otherwise.
+ *
+ * Only the things *you* wrote go here. Address, dates, rating and website are
+ * facts, and facts belong in ExtendedData where My Maps gives them their own
+ * labelled rows — putting them in both (which this used to do) printed every
+ * value on the card twice. */
+function describe(sections: (string | null)[]): string | null {
+  const kept = sections.filter((line): line is string => line != null && line !== "");
+  return kept.length > 0 ? kept.join("<br><br>") : null;
+}
 
+/** A short link to the real Google listing, which carries the hours, photos and
+ * reviews no import format can bring across.
+ *
+ * Deliberately terse, and deliberately *not* an `<a>`: My Maps flattens anchors
+ * on import and renders the href itself, so the old
+ * `maps/search/?api=1&query=<lat>,<lng>&query_place_id=<id>` form — 130-odd
+ * characters behind the words "Open in Google Maps" — arrived as a wall of URL.
+ * This form is a third of the length and resolves to the same listing. The
+ * protocol stays on so My Maps still autolinks it. */
+function mapsLink(googlePlaceId: string | null, name: string, address: string | null): string {
+  if (googlePlaceId) return `https://maps.google.com/?q=place_id:${encodeURIComponent(googlePlaceId)}`;
+  // Bookings are not drawn from the place library, so most have no place id.
+  // Spaces and commas are left legible rather than percent-encoded — `+` is a
+  // valid space in a query string, and %20/%2C everywhere turned a readable
+  // address into the same unreadable URL this function exists to shorten.
+  const query = [name, address].filter((part): part is string => !!part).join(", ");
+  const encoded = encodeURIComponent(query).replace(/%20/g, "+").replace(/%2C/g, ",");
+  return `https://maps.google.com/?q=${encoded}`;
+}
+
+/** "4.5 ★ (2,341 reviews)" — the bare "Rating: 4.5" this replaces never said
+ * out of what, or whose. It is Google's rating, and the count is the part that
+ * says whether to trust it. */
+function formatRating(rating: number | null, total: number | null): string {
+  if (rating == null) return "";
+  const stars = `${rating} ★`;
+  return total ? `${stars} (${total.toLocaleString("en-US")} reviews)` : stars;
+}
+
+/** Drops the protocol and any trailing slash. The anchor would not survive the
+ * import anyway, so this is read, not clicked, and the bare host reads better. */
+function formatWebsite(website: string | null): string {
+  if (!website) return "";
+  return website.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function placeToPoint(row: ExportPlaceRow): KmlPoint {
   return {
     name: row.name,
     lat: row.lat,
@@ -162,14 +192,21 @@ function placeToPoint(row: ExportPlaceRow): KmlPoint {
     // primaryTag, which previously fell through to the layer's first style and
     // drew an untagged place as the city anchor.
     styleId: mapPinStyleKeyFor(mapPinGroupForTag(row.primaryTag)),
-    descriptionHtml: lines.join("<br>") || null,
+    descriptionHtml: describe([
+      // Your note leads: it is the reason the place was saved. `description` is
+      // Google's own editorial summary (editorialSummary.text, see
+      // google-places.client.ts), so it is labelled and follows.
+      row.note ? `<b>Note:</b> ${escapeHtml(row.note)}` : null,
+      row.description ? `<b>About:</b> ${escapeHtml(row.description)}` : null,
+      escapeHtml(mapsLink(row.googlePlaceId, row.name, row.address)),
+    ]),
+    // No Category or Status row: the pin's colour and glyph already say the
+    // category, and status is an app-side workflow state (idea/planned/visited)
+    // that means nothing on an exported map.
     fields: [
-      { name: "Category", value: TAG_LABELS.get(row.primaryTag) ?? row.primaryTag },
-      { name: "Status", value: row.status },
       { name: "Address", value: row.address ?? "" },
-      { name: "Note", value: row.note ?? "" },
-      { name: "Website", value: row.website ?? "" },
-      { name: "Rating", value: row.rating != null ? String(row.rating) : "" },
+      { name: "Rating", value: formatRating(row.rating, row.userRatingsTotal) },
+      { name: "Website", value: formatWebsite(row.website) },
     ],
   };
 }
@@ -184,29 +221,39 @@ function toIsoMinutes(value: Date | string | null): string | null {
   return iso.slice(0, 16);
 }
 
-/** Hotel check-in/out and other all-day bookings are stored at midnight (the
- * booking form defaults the time to "00:00" when left blank), so printing
- * "00:00" would be noise rather than information. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Oct 4, 2026", or "Oct 4, 2026 14:30" when a time was actually set.
+ *
+ * Reads the "YYYY-MM-DDTHH:mm" string field by field rather than handing it to
+ * a Date: the string is already wall clock at the event's location (see the
+ * stored-datetimes rule in CLAUDE.md), so re-parsing it would reintroduce the
+ * zone shift toIsoMinutes() exists to avoid.
+ *
+ * Hotel check-in/out and other all-day bookings are stored at midnight (the
+ * booking form writes "00:00" when the time is left blank), so a trailing
+ * 00:00 means "no time set" and is dropped rather than printed as noise. */
 function formatWhen(value: Date | string | null): string | null {
   const iso = toIsoMinutes(value);
   if (iso == null) return null;
-  return iso.endsWith("T00:00") ? iso.slice(0, 10) : iso.replace("T", " ");
+  const [date, time] = iso.split("T");
+  const [year, month, day] = date.split("-");
+  const label = `${MONTHS[Number(month) - 1]} ${Number(day)}, ${year}`;
+  return time === "00:00" ? label : `${label} ${time}`;
+}
+
+/** A booking's date row. A same-year range drops the repeated year from the
+ * start ("Oct 4 – Oct 8, 2026"); anything else prints both in full. */
+function formatDateRange(startAt: Date | string | null, endAt: Date | string | null): string {
+  const start = formatWhen(startAt);
+  const end = formatWhen(endAt);
+  if (start == null) return end ?? "";
+  if (end == null) return start;
+  const sameYear = toIsoMinutes(startAt)?.slice(0, 4) === toIsoMinutes(endAt)?.slice(0, 4);
+  return `${sameYear ? start.replace(/, \d{4}/, "") : start} – ${end}`;
 }
 
 function bookingToPoint(row: ExportBookingRow): KmlPoint {
-  const typeLabel = enumLabel(BOOKING_TYPES, row.type);
-  const when = [formatWhen(row.startAt), formatWhen(row.endAt)]
-    .filter((d): d is string => d != null)
-    .join(" – ");
-
-  const lines: string[] = [`<b>${escapeHtml(typeLabel)}</b>`];
-  if (when) lines.push(escapeHtml(when));
-  if (row.address) lines.push(escapeHtml(row.address));
-  if (row.notes) lines.push(escapeHtml(row.notes));
-  // Confirmation codes are deliberately left out: a My Map is one "share" click
-  // away from being public, and a booking reference is the one field here that
-  // would actually matter if it leaked.
-
   return {
     name: row.title,
     lat: row.lat,
@@ -214,13 +261,19 @@ function bookingToPoint(row: ExportBookingRow): KmlPoint {
     // Same styles the places use, via the app's own booking-type -> pin group
     // mapping, so a hotel pin matches the lodging color everywhere else.
     styleId: mapPinStyleKeyFor(mapPinGroupForBookingType(row.type)),
-    descriptionHtml: lines.join("<br>"),
+    // Confirmation codes are deliberately left out: a My Map is one "share"
+    // click away from being public, and a booking reference is the one field
+    // here that would actually matter if it leaked.
+    descriptionHtml: describe([
+      row.notes ? `<b>Note:</b> ${escapeHtml(row.notes)}` : null,
+      escapeHtml(mapsLink(row.googlePlaceId, row.title, row.address)),
+    ]),
+    // Reads in the same order as a place, minus the rows a booking has no
+    // source for. The type is carried by the pin rather than repeated as a
+    // bold first line *and* a Category row, as it was before.
     fields: [
-      { name: "Category", value: typeLabel },
-      { name: "Booking", value: "yes" },
-      { name: "Dates", value: when },
+      { name: "Dates", value: formatDateRange(row.startAt, row.endAt) },
       { name: "Address", value: row.address ?? "" },
-      { name: "Note", value: row.notes ?? "" },
     ],
   };
 }
@@ -249,7 +302,8 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
 
     const [placeRows] = await getPool().query(
       `SELECT p.id, p.google_place_id AS googlePlaceId, p.name, p.primary_tag AS primaryTag, p.status,
-              p.address, p.lat, p.lng, p.rating, p.website, p.description, p.note
+              p.address, p.lat, p.lng, p.rating, p.user_ratings_total AS userRatingsTotal,
+              p.website, p.description, p.note
        FROM places p
        JOIN trip_places tp ON tp.place_id = p.id AND tp.trip_id = ?
        WHERE p.user_id = ?
@@ -282,7 +336,8 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
     // but an export is a snapshot of the whole trip, and silently dropping a
     // past trip's hotels would be worse).
     const [bookingRows] = await getPool().query(
-      `SELECT b.id, b.type, b.title, b.leg_id AS legId, b.start_at AS startAt, b.end_at AS endAt,
+      `SELECT b.id, p.google_place_id AS googlePlaceId, b.type, b.title, b.leg_id AS legId,
+              b.start_at AS startAt, b.end_at AS endAt,
               COALESCE(b.address, p.address) AS address,
               COALESCE(b.lat, p.lat) AS lat,
               COALESCE(b.lng, p.lng) AS lng,
