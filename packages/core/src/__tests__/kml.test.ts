@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildKmlLayer, escapeXml, kmlFileName } from "../kml";
+import { buildKmlLayer, escapeXml, kmlFileName, myMapsIconUrl } from "../kml";
 import { createZip, crc32, utf8Bytes } from "../zip";
 import { groupByLeg, legIdForScheduling } from "../exportGrouping";
 
@@ -195,5 +195,39 @@ describe("createZip", () => {
     const cdOffset = view.getUint32(eocd + 16, true);
     expect(view.getUint32(cdOffset, true)).toBe(0x02014b50);
     expect(cdOffset + cdSize).toBe(eocd);
+  });
+});
+
+describe("myMapsIconUrl", () => {
+  // The whole point of this builder: the color rides in the URL, so My Maps
+  // dropping <IconStyle><color> on import no longer limits the export to a
+  // fixed palette. Assert the app's own hex survives verbatim.
+  it("bakes an arbitrary hex into the URL, with or without a leading #", () => {
+    expect(myMapsIconUrl("#a52714", "1602-hotel-bed")).toContain("highlight=ff000000,a52714,ff000000");
+    expect(myMapsIconUrl("a52714", "1602-hotel-bed")).toBe(myMapsIconUrl("#a52714", "1602-hotel-bed"));
+  });
+
+  it("uses the round badge when there is a glyph and the plain pin when there isn't", () => {
+    const withGlyph = myMapsIconUrl("#097138", "1577-food-fork-knife");
+    expect(withGlyph).toContain("icons/onion/SHARED-mymaps-container-bg_4x.png");
+    expect(withGlyph).toContain("icons/onion/SHARED-mymaps-container_4x.png");
+    expect(withGlyph).toContain("icons/onion/1577-food-fork-knife_4x.png");
+
+    const plain = myMapsIconUrl("#56fb7a");
+    expect(plain).toContain("icons/onion/SHARED-mymaps-pin-container-bg_4x.png");
+    expect(plain).not.toContain("SHARED-mymaps-container_4x");
+    expect(plain).not.toContain("1577");
+  });
+
+  // One highlight per named layer, in order - a mismatch renders the wrong
+  // layer in the pin color, which looks like a styling bug rather than an error.
+  it("emits exactly one highlight color per layer", () => {
+    const count = (url: string) => {
+      const layers = /name=([^&]+)/.exec(url)![1].split(",").length;
+      const colors = /highlight=([^&]+)/.exec(url)![1].split(",").length;
+      return { layers, colors };
+    };
+    expect(count(myMapsIconUrl("#097138", "1517-bar-cocktail"))).toEqual({ layers: 3, colors: 3 });
+    expect(count(myMapsIconUrl("#56fb7a"))).toEqual({ layers: 2, colors: 2 });
   });
 });

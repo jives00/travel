@@ -8,9 +8,12 @@ import {
   groupByLeg,
   kmlFileName,
   mapPinGroupForBookingType,
+  mapPinGroupForTag,
+  myMapsIconUrl,
   type KmlPoint,
   type KmlStyle,
 } from "@travel/core";
+import { MAP_PIN_STYLES, mapPinStyleKeyFor, type MapPinStyleKey } from "@travel/ui-tokens";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { geocodeCity } from "../services/weather.client";
@@ -76,31 +79,44 @@ const TAG_LABELS = new Map(PLACE_TAGS.map((t) => [t.key, t.label]));
 // trip map here. (My Maps lets you restyle a layer after import; this is the
 // starting point.)
 //
-// Hand-mapped onto Google's pre-colored paddle icons rather than derived from
-// MAP_PIN_COLORS: My Maps ignores `<IconStyle><color>`, so the exact in-app hex
-// cannot be reproduced — only approximated by the nearest of the nine paddle
-// colors (blu, grn, ltblu, orange, pink, purple, red, wht, ylw). Kept in the
-// same order as PLACE_TAGS so a new tag is obviously missing from here.
-const PADDLE = (name: string) => `https://maps.google.com/mapfiles/kml/paddle/${name}.png`;
+// Styled by the app's own six pin styles rather than by the nine place tags, so
+// an exported map reads exactly like the trip map: colors come straight from
+// MAP_PIN_STYLES and the glyphs are Google's nearest equivalents of the app's.
+//
+// This used to be a hand-mapped approximation onto the nine `mapfiles/kml/paddle`
+// colors, because My Maps drops `<IconStyle><color>` on import and so needs
+// pre-colored images. myMapsIconUrl() removes that constraint — the color is a
+// URL parameter, so every pin here is the app's exact hex *and* carries a glyph.
+//
+// Glyph ids are Google's own and are verified against the live icon service; a
+// wrong id 404s and renders as a missing pin rather than an error. Two drift
+// knowingly from the app: lodging is a bed where the app draws a house (My Maps
+// has no house glyph, and a bed is no less clear), and `default` is a plain pin
+// with no glyph, which is what the app does too.
 const CITY_STYLE_ID = "city";
-const TAG_ICONS: Record<string, string> = {
-  activity: PADDLE("ltblu-circle"), // #1baf7a teal-green
-  day_trip: PADDLE("orange-circle"), // #eb6834
-  food_drinks: PADDLE("red-circle"), // #e34948
-  lodging: PADDLE("purple-circle"), // #4a3aa7
-  nightlife: PADDLE("pink-circle"), // #c026d3
-  other: PADDLE("wht-circle"), // neutral fallback
-  shopping: PADDLE("ylw-circle"), // #eda100
-  site: PADDLE("grn-circle"), // #008300
-  transit: PADDLE("blu-circle"), // #2a78d6
+
+// The city anchor is not one of the app's pin styles — it marks the leg itself,
+// not a place — so it gets a flag, and a blue no pin style uses.
+const CITY_COLOR = "#1a73e8";
+const CITY_GLYPH = "1574-flag";
+
+const STYLE_GLYPHS: Record<MapPinStyleKey, string | null> = {
+  default: null, // a plain pin, matching the app's glyphless default
+  food_drinks: "1577-food-fork-knife",
+  lodging: "1602-hotel-bed",
+  nightlife: "1517-bar-cocktail",
+  // Unreachable today: `is_private` lives on itinerary_items, which this export
+  // never joins for that flag, so nothing here can resolve to the private
+  // style. Kept so the record is complete if that changes — see todo #4.
+  private: "1608-info",
+  transit: "1522-bicycle",
 };
+
 const PLACE_STYLES: KmlStyle[] = [
-  // A diamond, not a circle — the city anchor should read differently from the
-  // places around it even though both are blue.
-  { id: CITY_STYLE_ID, iconUrl: PADDLE("blu-diamond") },
-  ...PLACE_TAGS.map((tag) => ({
-    id: tag.key,
-    iconUrl: TAG_ICONS[tag.key] ?? PADDLE("wht-circle"),
+  { id: CITY_STYLE_ID, iconUrl: myMapsIconUrl(CITY_COLOR, CITY_GLYPH) },
+  ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[]).map((key) => ({
+    id: key,
+    iconUrl: myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
   })),
 ];
 
@@ -129,7 +145,11 @@ function placeToPoint(row: ExportPlaceRow): KmlPoint {
     name: row.name,
     lat: row.lat,
     lng: row.lng,
-    styleId: row.primaryTag,
+    // Via the app's own tag -> group -> style collapse, so a place and the same
+    // place's booking land on one style. mapPinGroupForTag also absorbs a null
+    // primaryTag, which previously fell through to the layer's first style and
+    // drew an untagged place as the city anchor.
+    styleId: mapPinStyleKeyFor(mapPinGroupForTag(row.primaryTag)),
     descriptionHtml: lines.join("<br>") || null,
     fields: [
       { name: "Category", value: TAG_LABELS.get(row.primaryTag) ?? row.primaryTag },
@@ -179,9 +199,9 @@ function bookingToPoint(row: ExportBookingRow): KmlPoint {
     name: row.title,
     lat: row.lat,
     lng: row.lng,
-    // Same tag styles the places use, via the app's own booking-type -> pin
-    // group mapping, so a hotel pin matches the lodging color everywhere else.
-    styleId: mapPinGroupForBookingType(row.type),
+    // Same styles the places use, via the app's own booking-type -> pin group
+    // mapping, so a hotel pin matches the lodging color everywhere else.
+    styleId: mapPinStyleKeyFor(mapPinGroupForBookingType(row.type)),
     descriptionHtml: lines.join("<br>"),
     fields: [
       { name: "Category", value: typeLabel },

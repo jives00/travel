@@ -25,10 +25,54 @@ export interface KmlStyle {
    * Must be a **pre-colored** icon, not a neutral one plus a tint. Google My
    * Maps drops `<IconStyle><color>` on import and renders the raw image, so
    * tinting a neutral icon (e.g. shapes/placemark_circle.png) arrives as a
-   * black bullseye for every category. The maps.google.com/mapfiles/kml/paddle
-   * set ships one image per color, which survives the import intact.
+   * black bullseye for every category.
+   *
+   * `myMapsIconUrl()` below is the way to satisfy that without being limited to
+   * a fixed palette — it bakes the color into the URL.
    */
   iconUrl: string;
+}
+
+/** Builds a My Maps icon URL: a **pre-colored** PNG in any hex, with an optional
+ * glyph, rendered on demand by Google's own icon service.
+ *
+ * This is the same URL shape My Maps itself writes when *it* exports a KML, so
+ * an import is really a round-trip of Google's own artwork rather than a
+ * lookalike. It matters because it dissolves what used to be the hard
+ * constraint here: `<IconStyle><color>` is dropped on import, so icons had to
+ * be pre-colored images, which meant picking the nearest of the nine
+ * `mapfiles/kml/paddle` colors and accepting that the app's hex could only be
+ * approximated. The color is a *URL parameter* here, so the export can use the
+ * app's exact hex and carry a glyph at the same time.
+ *
+ * The icon is composed of stacked layers, each taking one `highlight` color:
+ *  - `...container-bg` is the drop shadow/outline, always black
+ *  - `...container` is the body, which takes the pin color
+ *  - the glyph layer is knocked out of the body, so it takes black too
+ *
+ * Two containers exist and they are not interchangeable: `mymaps-container` is
+ * the round badge a glyph sits inside, `mymaps-pin-container` the plain
+ * teardrop used when there is no glyph.
+ *
+ * Glyph ids are Google's own (`1577-food-fork-knife`), and **both halves must
+ * match exactly** — the service 404s on a wrong number *or* a wrong name, and a
+ * 404 shows up as a missing pin rather than an error, so verify any new id
+ * against the live service rather than guessing it.
+ */
+export function myMapsIconUrl(color: string, glyphId?: string | null): string {
+  const hex = color.replace(/^#/, "");
+  const container = glyphId ? "SHARED-mymaps-container" : "SHARED-mymaps-pin-container";
+  const layers = [`icons/onion/${container}-bg_4x.png`, `icons/onion/${container}_4x.png`];
+  // One highlight per layer, in the same order.
+  const highlight = ["ff000000", hex];
+  if (glyphId) {
+    layers.push(`icons/onion/${glyphId}_4x.png`);
+    highlight.push("ff000000");
+  }
+  return (
+    `https://mt.googleapis.com/vt/icon/name=${layers.join(",")}` +
+    `&highlight=${highlight.join(",")}&scale=2.0`
+  );
 }
 
 export interface KmlPoint {

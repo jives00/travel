@@ -48,6 +48,9 @@ importers:
       '@travel/types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@travel/ui-tokens':
+        specifier: workspace:*
+        version: link:../../packages/ui-tokens
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
