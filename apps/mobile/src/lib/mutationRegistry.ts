@@ -30,6 +30,7 @@ import { registerBookingMutations } from "./offlineMutations/bookings";
 import { registerExpenseMutations } from "./offlineMutations/expenses";
 import { registerWishlistMutations } from "./offlineMutations/wishlist";
 import { registerDayNoteMutations } from "./offlineMutations/dayNotes";
+import { registerReadinessMutations } from "./offlineMutations/readiness";
 
 // Phase B — Trips
 registerTripMutations();
@@ -48,5 +49,7 @@ registerExpenseMutations();
 registerWishlistMutations();
 // Calendar view — per-day notes
 registerDayNoteMutations();
+// Trip readiness — dismissed nudges
+registerReadinessMutations();
 
 export {};

@@ -4,9 +4,15 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Booking, Trip } from "@travel/types";
-import { buildShareItineraryText, computeCountdown, pluralCity, todayUtcMidnight } from "@travel/core";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Trip } from "@travel/types";
+import {
+  buildShareItineraryText,
+  computeCountdown,
+  computeReadiness,
+  readinessNudgeLabel,
+  todayUtcMidnight,
+} from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { useHideDoneLists } from "@/lib/listPrefs";
 import { Modal, TripItinerary } from "./trip-itinerary";
@@ -193,6 +199,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
+  const { data: dismissals } = useQuery(travelApi.queries.readinessDismissalsQuery(tripId));
   // Already cached by the itinerary section below — this just reads the same
   // entry so the hero's Share button can build its text.
   const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
@@ -208,6 +215,17 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const [archiving, setArchiving] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
   const [togglingPrimary, setTogglingPrimary] = useState(false);
+  const [showDismissed, setShowDismissed] = useState(false);
+
+  const dismissalsKey = ["readinessDismissals", tripId] as const;
+  const dismiss = useMutation({
+    mutationFn: (keys: string[]) => travelApi.readiness.dismiss(tripId, keys),
+    onSuccess: (rows) => queryClient.setQueryData(dismissalsKey, rows),
+  });
+  const restore = useMutation({
+    mutationFn: (keys: string[]) => travelApi.readiness.restore(tripId, keys),
+    onSuccess: (rows) => queryClient.setQueryData(dismissalsKey, rows),
+  });
   const [editingBackdrop, setEditingBackdrop] = useState(false);
   const [backdropUrl, setBackdropUrl] = useState("");
   const [savingBackdrop, setSavingBackdrop] = useState(false);
@@ -325,30 +343,12 @@ export function TripDetail({ tripId }: { tripId: number }) {
 
   const countdown = computeCountdown(trip, sortedLegs, bookings ?? [], today);
   const cityChain = sortedLegs.map((l) => l.city).join(" → ");
-  const hotelBookingByLegId = new Map<number, Booking>();
-  for (const b of bookings ?? []) {
-    if (b.type === "hotel" && b.legId != null && !hotelBookingByLegId.has(b.legId)) hotelBookingByLegId.set(b.legId, b);
-  }
-
-  const legsWithoutDates = sortedLegs.filter((l) => !l.startDate || !l.endDate);
-  const legsWithoutLodging = sortedLegs.filter((l) => !hotelBookingByLegId.has(l.id));
-  const ideaCount = (tripPlaces ?? []).filter((p) => p.status === "idea").length;
-  const nudges: { text: string; tone: "warning" | "info" }[] = [];
-  if (trip.status !== "dreaming" && legsWithoutDates.length > 0) {
-    nudges.push({
-      text: `${legsWithoutDates.length} ${pluralCity(legsWithoutDates.length)} still need dates`,
-      tone: "warning",
-    });
-  }
-  if (sortedLegs.length > 0 && legsWithoutLodging.length > 0) {
-    nudges.push({
-      text: `${legsWithoutLodging.length} ${pluralCity(legsWithoutLodging.length)} have no lodging set`,
-      tone: "warning",
-    });
-  }
-  if (ideaCount > 0) {
-    nudges.push({ text: `${ideaCount} idea(s) not yet scheduled onto a day`, tone: "info" });
-  }
+  // Rules live in @travel/core so web and mobile can't drift, and so a
+  // dismissal key means the same thing on both.
+  const readiness = computeReadiness(
+    { trip, legs: sortedLegs, bookings: bookings ?? [], places: tripPlaces ?? [] },
+    (dismissals ?? []).map((d) => d.key),
+  );
 
   const linkedLists = (allLists ?? []).filter((l) => l.tripId === tripId);
 
@@ -565,20 +565,62 @@ export function TripDetail({ tripId }: { tripId: number }) {
         </Modal>
       )}
 
-      {/* Trip readiness — not useful once the trip is over */}
-      {trip.status !== "past" && nudges.length > 0 && (
+      {/* Trip readiness — computeReadiness already returns nothing for a past
+          trip, and hides whatever's been dismissed. */}
+      {(readiness.groups.length > 0 || readiness.dismissed.length > 0) && (
         <section className="rounded border border-gridline bg-surface p-4">
           <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Trip readiness</h2>
-          <ul className="space-y-1">
-            {nudges.map((n, i) => (
-              <li
-                key={i}
-                className={`text-sm ${n.tone === "warning" ? "text-status-warning" : "text-text-secondary"}`}
-              >
-                {n.text}
-              </li>
-            ))}
-          </ul>
+          {readiness.groups.length === 0 ? (
+            <p className="text-sm text-text-secondary">Nothing outstanding.</p>
+          ) : (
+            <ul className="space-y-1">
+              {readiness.groups.map((g) => (
+                <li key={g.rule} className="group flex items-center gap-2">
+                  <span
+                    className={`text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary"}`}
+                  >
+                    {g.text}
+                  </span>
+                  {/* Dismisses every subject in the line as it stands now — a
+                      city added later is a new key, so it still warns. */}
+                  <button
+                    onClick={() => dismiss.mutate(g.nudges.map((n) => n.key))}
+                    title={`Dismiss: ${g.nudges.map((n) => n.subjectLabel).join(", ")}`}
+                    aria-label={`Dismiss ${g.text}`}
+                    className="text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100"
+                  >
+                    <span className="material-symbols-outlined text-base" aria-hidden="true">
+                      close
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* Without this, dismissing is a one-way trapdoor — nothing else in
+              the UI ever mentions a hidden nudge again. */}
+          {readiness.dismissed.length > 0 && (
+            <div className="mt-3 border-t border-gridline pt-2 text-xs text-text-muted">
+              <button onClick={() => setShowDismissed((v) => !v)} className="hover:text-text-secondary">
+                {readiness.dismissed.length} dismissed — {showDismissed ? "hide" : "show"}
+              </button>
+              {showDismissed && (
+                <ul className="mt-2 space-y-1">
+                  {readiness.dismissed.map((n) => (
+                    <li key={n.key} className="flex items-center gap-2">
+                      <span className="line-through">{readinessNudgeLabel(n)}</span>
+                      <button
+                        onClick={() => restore.mutate([n.key])}
+                        className="text-text-secondary hover:text-text-primary"
+                      >
+                        Restore
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </section>
       )}
 

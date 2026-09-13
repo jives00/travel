@@ -5,8 +5,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
-import type { Booking, Trip } from "@travel/types";
-import { computeCountdown, buildShareItineraryText, todayUtcMidnight } from "@travel/core";
+import type { Trip } from "@travel/types";
+import {
+  computeCountdown,
+  buildShareItineraryText,
+  computeReadiness,
+  readinessNudgeLabel,
+  todayUtcMidnight,
+} from "@travel/core";
 import { travelApi } from "../lib/api";
 import { usePullToRefresh } from "../lib/usePullToRefresh";
 import {
@@ -17,6 +23,7 @@ import {
   useAddLeg,
   useDeleteLeg,
 } from "../lib/offlineMutations/trips";
+import { useDismissReadiness, useRestoreReadiness } from "../lib/offlineMutations/readiness";
 import { Card, Button, SegmentedControl, TextField, Sheet, STATUS_BAR_BG } from "./ui";
 import { TripWeather } from "./TripWeather";
 import { TripItinerary } from "./TripItinerary";
@@ -43,6 +50,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   // the Share button can build its text without extra fetches.
   const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
   const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
+  const { data: dismissals } = useQuery(travelApi.queries.readinessDismissalsQuery(tripId));
   const { data: hero } = useQuery({
     ...travelApi.queries.heroImageQuery(tripId),
     enabled: !trip?.heroImageUrl,
@@ -63,6 +71,9 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const [cityStart, setCityStart] = useState("");
   const [cityEnd, setCityEnd] = useState("");
   const [showingLists, setShowingLists] = useState(false);
+  const [showDismissed, setShowDismissed] = useState(false);
+  const dismissReadiness = useDismissReadiness(tripId);
+  const restoreReadiness = useRestoreReadiness(tripId);
   const [collapsedListIds, setCollapsedListIds] = useState<Set<number>>(new Set());
   useEffect(() => {
     void AsyncStorage.getItem(COLLAPSED_LISTS_KEY).then((stored) => {
@@ -91,15 +102,12 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const cityChain = sortedLegs.map((l) => l.city).join(" → ");
   const heroUri = trip.heroImageUrl ?? hero?.url ?? null;
 
-  // Readiness nudges — same rules as web.
-  const hotelLegIds = new Set(
-    (bookings ?? []).filter((b: Booking) => b.type === "hotel" && b.legId != null).map((b) => b.legId),
+  // Readiness nudges — literally the same rules as web now (@travel/core),
+  // rather than a hand-copied approximation that had drifted.
+  const readiness = computeReadiness(
+    { trip, legs: sortedLegs, bookings: bookings ?? [], places: tripPlaces ?? [] },
+    (dismissals ?? []).map((d) => d.key),
   );
-  const legsNoDates = sortedLegs.filter((l) => !l.startDate || !l.endDate);
-  const legsNoLodging = sortedLegs.filter((l) => !hotelLegIds.has(l.id));
-  const nudges: string[] = [];
-  if (trip.status !== "dreaming" && legsNoDates.length > 0) nudges.push(`${legsNoDates.length} city(ies) still need dates`);
-  if (sortedLegs.length > 0 && legsNoLodging.length > 0) nudges.push(`${legsNoLodging.length} city(ies) have no lodging set`);
   const linkedLists = (allLists ?? []).filter((l) => l.tripId === tripId);
 
   /** Hands the plain-text itinerary (places by city — no dates, logistics
@@ -159,14 +167,56 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
       </View>
 
       <View className="p-4">
-        {trip.status !== "past" && nudges.length > 0 && (
+        {(readiness.groups.length > 0 || readiness.dismissed.length > 0) && (
           <Card className="mb-4">
             <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Trip readiness</Text>
-            {nudges.map((n) => (
-              <Text key={n} className="text-sm text-status-warning">
-                {n}
-              </Text>
-            ))}
+            {readiness.groups.length === 0 ? (
+              <Text className="text-sm text-text-secondary dark:text-text-secondary-dark">Nothing outstanding.</Text>
+            ) : (
+              readiness.groups.map((g) => (
+                <View key={g.rule} className="flex-row items-center justify-between py-0.5">
+                  <Text
+                    className={`flex-1 text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary dark:text-text-secondary-dark"}`}
+                  >
+                    {g.text}
+                  </Text>
+                  {/* Dismisses the subjects behind the line as it stands now;
+                      a city added later is a new key and warns again. */}
+                  <Pressable
+                    onPress={() => dismissReadiness.mutate({ tripId, keys: g.nudges.map((n) => n.key) })}
+                    hitSlop={12}
+                    accessibilityLabel={`Dismiss ${g.text}`}
+                    className="pl-3"
+                  >
+                    <Text className="text-base text-text-muted dark:text-text-muted-dark">✕</Text>
+                  </Pressable>
+                </View>
+              ))
+            )}
+            {readiness.dismissed.length > 0 && (
+              <View className="mt-2 border-t border-gridline pt-2 dark:border-gridline-dark">
+                <Pressable onPress={() => setShowDismissed((v) => !v)} hitSlop={8}>
+                  <Text className="text-xs text-text-muted dark:text-text-muted-dark">
+                    {readiness.dismissed.length} dismissed — {showDismissed ? "hide" : "show"}
+                  </Text>
+                </Pressable>
+                {showDismissed &&
+                  readiness.dismissed.map((n) => (
+                    <View key={n.key} className="flex-row items-center justify-between py-0.5">
+                      <Text className="flex-1 text-xs text-text-muted line-through dark:text-text-muted-dark">
+                        {readinessNudgeLabel(n)}
+                      </Text>
+                      <Pressable
+                        onPress={() => restoreReadiness.mutate({ tripId, keys: [n.key] })}
+                        hitSlop={12}
+                        className="pl-3"
+                      >
+                        <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">Restore</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+              </View>
+            )}
           </Card>
         )}
 
