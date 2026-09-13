@@ -74,3 +74,28 @@ export function remapRelativeDay(leg: Leg, dayIndex: number): string | null {
   const start = parseDate(leg.startDate);
   return toDateOnly(new Date(start.getTime() + dayIndex * 86_400_000));
 }
+
+/** Chronological leg order: start date, then end date, then sortOrder as the
+ * tiebreaker. Legs missing a date sink below every dated leg (a dreaming trip's
+ * legs keep their insertion order among themselves). The API orders the same way
+ * in SQL — this is for the client copies of the list, which must not disagree. */
+export function compareLegs(a: Leg, b: Leg): number {
+  // Dates are date-only strings, so they sort lexicographically — but trim any
+  // ISO time suffix first, since a leg read back from a client cache can carry one.
+  const day = (d: string | null): string | null => (d ? d.slice(0, 10) : null);
+  for (const [x, y] of [
+    [day(a.startDate), day(b.startDate)],
+    [day(a.endDate), day(b.endDate)],
+  ] as const) {
+    if (x === y) continue;
+    if (!x) return 1;
+    if (!y) return -1;
+    return x < y ? -1 : 1;
+  }
+  return a.sortOrder - b.sortOrder;
+}
+
+/** `compareLegs` applied to a copy — the common case at every call site. */
+export function sortLegs(legs: Leg[]): Leg[] {
+  return [...legs].sort(compareLegs);
+}

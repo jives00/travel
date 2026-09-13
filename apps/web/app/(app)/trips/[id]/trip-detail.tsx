@@ -12,6 +12,7 @@ import {
   computeReadiness,
   readinessNudgeLabel,
   todayUtcMidnight,
+  sortLegs,
 } from "@travel/core";
 import { travelApi } from "@/lib/api";
 import { useHideDoneLists } from "@/lib/listPrefs";
@@ -337,7 +338,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
 
   if (!trip) return null;
 
-  const sortedLegs = [...trip.legs].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sortedLegs = sortLegs(trip.legs);
 
   const today = todayUtcMidnight();
 

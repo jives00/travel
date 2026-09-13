@@ -21,6 +21,7 @@ import {
   bookingCalendarUrl,
   itineraryCalendarUrl,
   resolveTimezone,
+  sortLegs,
 } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
@@ -777,19 +778,9 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     ].filter((e) => showPrivate || !e.isPrivate);
   }, [bookings, items, placeById, settings]);
 
-  // Sorted by date, same as web — dateless legs sink after any dated legs.
-  const sortedLegs = useMemo(
-    () =>
-      [...legs].sort((a, b) => {
-        const ad = a.startDate ? toDateOnlyString(a.startDate) : null;
-        const bd = b.startDate ? toDateOnlyString(b.startDate) : null;
-        if (ad && bd) return ad.localeCompare(bd);
-        if (ad) return -1;
-        if (bd) return 1;
-        return a.sortOrder - b.sortOrder;
-      }),
-    [legs],
-  );
+  // Sorted by date, same as web — the rules live in @travel/core (start date,
+  // then end date, dateless legs last).
+  const sortedLegs = useMemo(() => sortLegs(legs), [legs]);
 
   const datedLegs = sortedLegs.filter((l) => l.startDate && l.endDate);
   const earliestStart = datedLegs.length

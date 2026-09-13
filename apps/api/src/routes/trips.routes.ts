@@ -58,6 +58,11 @@ const LEG_SELECT = `
   FROM legs
 `;
 
+/** Legs read out chronologically: start date, then end date, with sort_order as
+ * the tiebreaker. Undated legs (dreaming trips) sink below every dated one.
+ * Mirrors compareLegs in @travel/core, which the clients sort their copies with. */
+const LEG_ORDER = "ORDER BY start_date IS NULL, start_date, end_date IS NULL, end_date, sort_order";
+
 /** Self-healing cache, same shape as the legs.lat/lng backfill in
  * map.routes.ts: legs written before migration 032 have no zone, and legs.
  * routes only resolves one at write time. Lookups run in parallel so a trip
@@ -78,7 +83,7 @@ async function backfillLegTimezones(legs: LegRow[]): Promise<void> {
 }
 
 async function legsForTrip(tripId: number): Promise<LegRow[]> {
-  const [rows] = await getPool().query(`${LEG_SELECT} WHERE trip_id = ? ORDER BY sort_order`, [tripId]);
+  const [rows] = await getPool().query(`${LEG_SELECT} WHERE trip_id = ? ${LEG_ORDER}`, [tripId]);
   const legs = rows as LegRow[];
   await backfillLegTimezones(legs);
   return legs;
@@ -120,7 +125,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     if (!trip) return reply.code(404).send({ error: "not found" });
 
     const legs = await legsForTrip(trip.id);
-    const firstLeg = [...legs].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    const firstLeg = legs[0]; // legsForTrip already returns them chronologically
     if (!firstLeg) return { url: null, city: null, photographerName: null, photographerUrl: null };
 
     const photo = await searchCityPhoto(firstLeg.city).catch(() => null);
@@ -145,7 +150,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     if (!trip) return reply.code(404).send({ error: "not found" });
 
     const legs = await legsForTrip(trip.id);
-    const firstLeg = [...legs].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    const firstLeg = legs[0]; // legsForTrip already returns them chronologically
     if (!firstLeg) return reply.code(400).send({ error: "trip has no city to search a photo for" });
 
     const photo = await searchCityPhoto(firstLeg.city).catch(() => null);
@@ -174,7 +179,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     if (!trip) return reply.code(404).send({ error: "not found" });
 
     const legs = await legsForTrip(trip.id);
-    const firstLeg = [...legs].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    const firstLeg = legs[0]; // legsForTrip already returns them chronologically
     if (!firstLeg) return { city: null, options: [] };
 
     const options = await searchCityPhotoOptions(firstLeg.city).catch(() => []);
@@ -219,10 +224,9 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     if (!trip) return reply.code(404).send({ error: "not found" });
 
     const legs = await legsForTrip(trip.id);
-    const sorted = [...legs].sort((a, b) => a.sortOrder - b.sortOrder);
-    if (sorted.length === 0) return { city: null, days: [] };
+    if (legs.length === 0) return { city: null, days: [] };
 
-    const dated = sorted.filter((l) => l.startDate && l.endDate);
+    const dated = legs.filter((l) => l.startDate && l.endDate);
 
     function cityForDate(date: string): string | null {
       const covering = dated.find((l) => l.startDate! <= date && date <= l.endDate!);
@@ -231,7 +235,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
         .filter((l) => l.startDate! > date)
         .sort((a, b) => a.startDate!.localeCompare(b.startDate!))[0];
       if (upcoming) return upcoming.city;
-      if (dated.length === 0) return sorted[0].city;
+      if (dated.length === 0) return legs[0].city;
       return null;
     }
 

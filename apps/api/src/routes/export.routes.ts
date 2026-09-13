@@ -314,7 +314,8 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
 
     const [legRows] = await getPool().query(
       `SELECT id, city, start_date AS startDate, end_date AS endDate, lat, lng
-       FROM legs WHERE trip_id = ? ORDER BY sort_order`,
+       FROM legs WHERE trip_id = ?
+        ORDER BY start_date IS NULL, start_date, end_date IS NULL, end_date, sort_order`,
       [tripId],
     );
     const legs = legRows as ExportLegRow[];

@@ -12,6 +12,7 @@ import {
   computeReadiness,
   readinessNudgeLabel,
   todayUtcMidnight,
+  sortLegs,
 } from "@travel/core";
 import { travelApi } from "../lib/api";
 import { usePullToRefresh } from "../lib/usePullToRefresh";
@@ -96,7 +97,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
 
   if (!trip) return null;
 
-  const sortedLegs = [...trip.legs].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sortedLegs = sortLegs(trip.legs);
   const today = todayUtcMidnight();
   const countdown = computeCountdown(trip, sortedLegs, bookings ?? [], today);
   const cityChain = sortedLegs.map((l) => l.city).join(" → ");

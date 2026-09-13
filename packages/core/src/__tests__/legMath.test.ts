@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Leg, Trip } from "@travel/types";
-import { daysOfLeg, isTravelDay, legForDate, remapRelativeDay } from "../legMath";
+import { daysOfLeg, isTravelDay, legForDate, remapRelativeDay, sortLegs } from "../legMath";
 
 function leg(partial: Partial<Leg>): Leg {
   return {
@@ -86,5 +86,27 @@ describe("daysOfLeg / remapRelativeDay", () => {
   it("returns null when the leg still has no dates", () => {
     const l = leg({ dayCount: 3 });
     expect(remapRelativeDay(l, 1)).toBeNull();
+  });
+});
+
+describe("sortLegs", () => {
+  it("orders by start date, then end date", () => {
+    const long = leg({ id: 1, sortOrder: 0, startDate: "2026-09-01", endDate: "2026-09-07" });
+    const sameDay = leg({ id: 2, sortOrder: 1, startDate: "2026-09-07", endDate: "2026-09-07" });
+    const next = leg({ id: 3, sortOrder: 2, startDate: "2026-09-07", endDate: "2026-09-14" });
+    expect(sortLegs([next, sameDay, long]).map((l) => l.id)).toEqual([1, 2, 3]);
+  });
+
+  it("keeps insertion order for undated legs and sinks them below dated ones", () => {
+    const dreamA = leg({ id: 1, sortOrder: 0 });
+    const dreamB = leg({ id: 2, sortOrder: 1 });
+    const dated = leg({ id: 3, sortOrder: 2, startDate: "2026-09-01", endDate: "2026-09-02" });
+    expect(sortLegs([dreamA, dreamB, dated]).map((l) => l.id)).toEqual([3, 1, 2]);
+  });
+
+  it("puts a leg with a start date but no end before one starting later", () => {
+    const open = leg({ id: 1, sortOrder: 1, startDate: "2026-09-01", endDate: null });
+    const closed = leg({ id: 2, sortOrder: 0, startDate: "2026-09-02", endDate: "2026-09-03" });
+    expect(sortLegs([closed, open]).map((l) => l.id)).toEqual([1, 2]);
   });
 });

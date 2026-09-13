@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Booking, Place } from "@travel/types";
-import { todayDateString, tripDateSpan, type TimezoneSource } from "@travel/core";
+import { sortLegs, todayDateString, tripDateSpan, type TimezoneSource } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
 import { useTheme } from "@/lib/theme-context";
@@ -155,17 +155,10 @@ export function TripItinerary({
     };
   }
 
-  // Sorted by date now that there's no manual up/down reordering — dateless
-  // legs (a dreaming trip) have nothing to sort by, so they fall back to
-  // sort_order and sink after any dated legs.
-  const sortedLegs = [...(trip?.legs ?? [])].sort((a, b) => {
-    const ad = a.startDate ? toDateOnlyString(a.startDate) : null;
-    const bd = b.startDate ? toDateOnlyString(b.startDate) : null;
-    if (ad && bd) return ad.localeCompare(bd);
-    if (ad) return -1;
-    if (bd) return 1;
-    return a.sortOrder - b.sortOrder;
-  });
+  // Sorted by date now that there's no manual up/down reordering — the rules
+  // (start date, then end date, dateless legs last) live in @travel/core so
+  // this copy can't drift from the order the API reads them in.
+  const sortedLegs = sortLegs(trip?.legs ?? []);
   const placesById = new Map<number, Place>((tripPlaces ?? []).map((p) => [p.id, p]));
   const legOptions: LegOption[] = sortedLegs.map((l) => ({ id: l.id, city: l.city }));
 

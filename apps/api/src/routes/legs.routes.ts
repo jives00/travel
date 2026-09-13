@@ -16,6 +16,11 @@ const LEG_SELECT = `
   FROM legs
 `;
 
+/** Legs read out chronologically: start date, then end date, with sort_order as
+ * the tiebreaker. Undated legs (dreaming trips) sink below every dated one.
+ * Mirrors compareLegs in @travel/core, which the clients sort their copies with. */
+const LEG_ORDER = "ORDER BY start_date IS NULL, start_date, end_date IS NULL, end_date, sort_order";
+
 /** A leg's zone follows its city, so it's resolved whenever the city is
  * written rather than asked of the user. Never fatal: a geocode miss or an
  * Open-Meteo outage leaves the column null, and the read path retries the
@@ -136,7 +141,7 @@ export async function legsRoutes(app: FastifyInstance): Promise<void> {
       conn.release();
     }
 
-    const [rows] = await getPool().query(`${LEG_SELECT} WHERE trip_id = ? ORDER BY sort_order`, [
+    const [rows] = await getPool().query(`${LEG_SELECT} WHERE trip_id = ? ${LEG_ORDER}`, [
       request.params.tripId,
     ]);
     return rows;
