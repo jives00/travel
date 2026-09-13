@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { CreateTripBody, SelectListImageBody, UpdateTripBody } from "@travel/types";
-import { computeTripStatus } from "@travel/core";
+import { computeTripStatus, todayUtcMidnight } from "@travel/core";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { pingCityPhotoDownload, searchCityPhoto, searchCityPhotoOptions } from "../services/unsplash.client";
-import { geocodeCity, getCityForecast, type CityForecast } from "../services/weather.client";
+import { FORECAST_DAYS, geocodeCity, getCityForecast, type CityForecast } from "../services/weather.client";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -203,7 +203,7 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
     return withLegsAndStatus(list[0]);
   });
 
-  // Weather for each of the next 4 calendar days, using whichever leg covers
+  // Weather for each of the next few calendar days, using whichever leg covers
   // that specific day — so a trip that changes cities mid-window shows each
   // day's actual destination instead of freezing on the first city. A day
   // with no covering leg (trip hasn't started, or is between dated legs)
@@ -235,14 +235,17 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       return null;
     }
 
-    const todayUtc = new Date();
-    const dayCities = Array.from({ length: 4 }, (_, i) => {
-      const d = new Date(todayUtc);
-      d.setUTCDate(d.getUTCDate() + i);
-      return d.toISOString().slice(0, 10);
+    // The window starts at the *local* calendar date (todayUtcMidnight), not a
+    // UTC-truncated one — west of Greenwich the latter is already tomorrow all
+    // evening, which would label tomorrow "Today" and drop today's forecast.
+    const start = todayUtcMidnight();
+    const dayCities = Array.from({ length: FORECAST_DAYS }, (_, offset) => {
+      const d = new Date(start);
+      d.setUTCDate(d.getUTCDate() + offset);
+      return { offset, date: d.toISOString().slice(0, 10) };
     })
-      .map((date) => ({ date, city: cityForDate(date) }))
-      .filter((d): d is { date: string; city: string } => d.city !== null);
+      .map((d) => ({ ...d, city: cityForDate(d.date) }))
+      .filter((d): d is { offset: number; date: string; city: string } => d.city !== null);
     if (dayCities.length === 0) return { city: null, days: [] };
 
     const uniqueCities = [...new Set(dayCities.map((d) => d.city))];
@@ -253,21 +256,27 @@ export async function tripsRoutes(app: FastifyInstance): Promise<void> {
       }),
     );
 
-    // Forecasts are fetched with timezone "auto" (the city's local calendar),
-    // while dayCities is built from todayUtc — so exact date-string matching
-    // can miss a day whenever a city's local "today" differs from the UTC
-    // date (e.g. UTC-8 city, evening in UTC). Match by each city's running
-    // occurrence count instead: getCityForecast always returns 4 consecutive
-    // local days starting from that city's "today", so the Nth day we need
-    // that city's forecast for is reliably forecast.days[N].
-    const occurrenceByCity = new Map<string, number>();
+    // Index each city's forecast by the day's **offset from today**, never by a
+    // per-city occurrence count. getCityForecast asks for FORECAST_DAYS days at
+    // `timezone=auto`, so every city's array covers consecutive days starting at
+    // that city's own local today — meaning days[n] is today+n for all of them,
+    // and the offset is the only index that lines them up. Counting occurrences
+    // per city restarts at 0 on each new city, so a trip that changed city
+    // mid-window read the second city's *today* for a day two days out: wrong
+    // forecast, and a duplicate date that React rejected as a duplicate key.
+    //
+    // Offsetting also absorbs the local-vs-UTC skew that motivated the
+    // occurrence counter in the first place — a city whose local today differs
+    // from the window's date still has its own today at days[0].
+    //
+    // The window's date is what's returned, not the forecast's local one, so
+    // dates stay unique and in step with the "Today"/"Tomorrow" labels the
+    // clients derive from position.
     const days = dayCities
-      .map(({ city }) => {
+      .map(({ offset, date, city }) => {
         const forecast = forecastByCity.get(city);
-        const index = occurrenceByCity.get(city) ?? 0;
-        occurrenceByCity.set(city, index + 1);
-        const match = forecast?.days[index];
-        return match ? { ...match, city: forecast!.city } : null;
+        const match = forecast?.days[offset];
+        return match ? { ...match, date, city: forecast!.city } : null;
       })
       .filter((d): d is NonNullable<typeof d> => d !== null);
 

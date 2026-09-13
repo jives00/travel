@@ -7,6 +7,11 @@
 const GEOCODE_BASE = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST_BASE = "https://api.open-meteo.com/v1/forecast";
 
+/** How many consecutive days every city forecast covers, starting at that
+ * city's own local today. The weather route indexes into `days` by a day's
+ * offset from today, so its window must be exactly this long. */
+export const FORECAST_DAYS = 4;
+
 export interface DailyForecast {
   date: string; // "YYYY-MM-DD"
   tempMaxF: number;
@@ -85,7 +90,7 @@ export async function getCityForecast(city: string): Promise<CityForecast | null
     daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
     temperature_unit: "fahrenheit",
     timezone: "auto",
-    forecast_days: "4",
+    forecast_days: String(FORECAST_DAYS),
   });
   const forecastRes = await fetch(`${FORECAST_BASE}?${params.toString()}`);
   if (!forecastRes.ok) return null;
