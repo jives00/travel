@@ -3,7 +3,7 @@ import { View, Text, Pressable } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { useQuery } from "@tanstack/react-query";
 import { mapPinGroupForTag, mapPinGroupForBookingType } from "@travel/core";
-import { DARK_MAP_STYLE, mapPinStyleFor, type MapPinGroup } from "@travel/ui-tokens";
+import { DARK_MAP_STYLE, mapPinAnchorFraction, mapPinStyleFor, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "../lib/api";
 import { useTheme } from "../lib/theme";
 import { MapPin } from "./MapPin";
@@ -23,10 +23,6 @@ function regionForPins(pins: { lat: number; lng: number }[]): Region | undefined
     longitudeDelta: Math.max(0.05, (maxLng - minLng) * 1.4),
   };
 }
-
-// Fractions of the marker's own box — every pin is a circle sitting over the
-// point it marks, so this is its center.
-const PIN_ANCHOR = { x: 0.5, y: 0.5 };
 
 function FilterPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -218,31 +214,33 @@ export function TripMap({ tripId }: { tripId: number }) {
         >
           {filteredPins.map((p) => {
             const group = mapPinGroupForTag(p.primaryTag) as MapPinGroup;
+            const style = mapPinStyleFor(group, privatePlaceIds.has(p.id));
             return (
               <Marker
                 key={`place-${p.id}`}
                 coordinate={{ latitude: p.lat, longitude: p.lng }}
                 title={p.name}
                 description={p.address ?? undefined}
-                anchor={PIN_ANCHOR}
+                anchor={mapPinAnchorFraction(style)}
                 tracksViewChanges={tracksViewChanges}
               >
-                <MapPin style={mapPinStyleFor(group, privatePlaceIds.has(p.id))} />
+                <MapPin style={style} />
               </Marker>
             );
           })}
           {filteredBookingPins.map((b) => {
             const group = mapPinGroupForBookingType(b.type) as MapPinGroup;
+            const style = mapPinStyleFor(group, privateBookingIds.has(b.id));
             return (
               <Marker
                 key={`booking-${b.id}`}
                 coordinate={{ latitude: b.lat, longitude: b.lng }}
                 title={b.title}
                 description={b.address ?? undefined}
-                anchor={PIN_ANCHOR}
+                anchor={mapPinAnchorFraction(style)}
                 tracksViewChanges={tracksViewChanges}
               >
-                <MapPin style={mapPinStyleFor(group, privateBookingIds.has(b.id))} />
+                <MapPin style={style} />
               </Marker>
             );
           })}
