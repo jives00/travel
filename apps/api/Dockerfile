@@ -13,17 +13,20 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json .npmrc .
 COPY packages/types packages/types
 COPY packages/core packages/core
 COPY packages/api-client/package.json packages/api-client/package.json
-COPY packages/ui-tokens/package.json packages/ui-tokens/package.json
+COPY packages/ui-tokens packages/ui-tokens
 COPY apps/api apps/api
 COPY apps/web/package.json apps/web/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
 
-# packages/types and packages/core must be compiled to dist/ before apps/api's
+# Every workspace package apps/api imports must be compiled to dist/ before its
 # own build — a plain `node dist/server.js` cannot resolve raw .ts files from a
-# workspace package (see build plan §1 for the bug this fixes).
+# workspace package (see build plan §1 for the bug this fixes). ui-tokens joined
+# this list when the KML export started styling pins from MAP_PIN_STYLES; it was
+# a package.json-only stub before that, which is all the lockfile needs.
 RUN pnpm install --filter @travel/api... --frozen-lockfile
 RUN pnpm --filter @travel/types build
 RUN pnpm --filter @travel/core build
+RUN pnpm --filter @travel/ui-tokens build
 RUN pnpm --filter @travel/api build
 
 FROM base AS runtime
