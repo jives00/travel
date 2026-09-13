@@ -95,8 +95,14 @@ const TAG_LABELS = new Map(PLACE_TAGS.map((t) => [t.key, t.label]));
 // by looking at it, not by reading its id.
 //
 // Small knowing drift from the app: the bicycle here carries a rider and the
-// app's does not, and `private` is an "i" where the app draws "?". Everything
-// else is the same glyph.
+// app's does not. Everything else is the same glyph.
+//
+// The app's `private` style has no counterpart here on purpose. Privacy in the
+// app is an over-the-shoulder concern — the trip map hides those pins, or draws
+// them as a featureless "?", because someone may be looking at the screen — but
+// this export is a file you import into your own My Maps, where a disguised pin
+// is just a map that is wrong for you. Private items are therefore exported
+// under their real name and real category, and no `private` style is emitted.
 const CITY_STYLE_ID = "city";
 
 // The city anchor is not one of the app's pin styles — it marks the leg itself,
@@ -109,19 +115,21 @@ const STYLE_GLYPHS: Record<MapPinStyleKey, string | null> = {
   food_drinks: "1577-food-fork-knife",
   lodging: "1603-house",
   nightlife: "1517-bar-cocktail",
-  // Unreachable today: `is_private` lives on itinerary_items, which this export
-  // never joins for that flag, so nothing here can resolve to the private
-  // style. Kept so the record is complete if that changes — see todo #4.
-  private: "1608-info",
+  // Never emitted (see above). Present only to keep this record exhaustive, so
+  // that adding a style to MAP_PIN_STYLES still fails to compile until someone
+  // has decided what it draws here.
+  private: null,
   transit: "1522-bicycle",
 };
 
 const PLACE_STYLES: KmlStyle[] = [
   { id: CITY_STYLE_ID, iconUrl: myMapsIconUrl(CITY_COLOR, CITY_GLYPH) },
-  ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[]).map((key) => ({
-    id: key,
-    iconUrl: myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
-  })),
+  ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[])
+    .filter((key) => key !== "private")
+    .map((key) => ({
+      id: key,
+      iconUrl: myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
+    })),
 ];
 
 function escapeHtml(value: string): string {
