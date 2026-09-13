@@ -89,10 +89,14 @@ const TAG_LABELS = new Map(PLACE_TAGS.map((t) => [t.key, t.label]));
 // URL parameter, so every pin here is the app's exact hex *and* carries a glyph.
 //
 // Glyph ids are Google's own and are verified against the live icon service; a
-// wrong id 404s and renders as a missing pin rather than an error. Two drift
-// knowingly from the app: lodging is a bed where the app draws a house (My Maps
-// has no house glyph, and a bed is no less clear), and `default` is a plain pin
-// with no glyph, which is what the app does too.
+// wrong id 404s and renders as a missing pin rather than an error. Note the ids
+// are named for Google's taxonomy, not for what they draw — 1577-food-fork-knife
+// renders a fork and a *spoon*, which is what the app draws — so confirm a glyph
+// by looking at it, not by reading its id.
+//
+// Small knowing drift from the app: the bicycle here carries a rider and the
+// app's does not, and `private` is an "i" where the app draws "?". Everything
+// else is the same glyph.
 const CITY_STYLE_ID = "city";
 
 // The city anchor is not one of the app's pin styles — it marks the leg itself,
@@ -103,7 +107,7 @@ const CITY_GLYPH = "1574-flag";
 const STYLE_GLYPHS: Record<MapPinStyleKey, string | null> = {
   default: null, // a plain pin, matching the app's glyphless default
   food_drinks: "1577-food-fork-knife",
-  lodging: "1602-hotel-bed",
+  lodging: "1603-house",
   nightlife: "1517-bar-cocktail",
   // Unreachable today: `is_private` lives on itinerary_items, which this export
   // never joins for that flag, so nothing here can resolve to the private
