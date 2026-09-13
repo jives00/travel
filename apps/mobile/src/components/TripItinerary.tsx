@@ -33,7 +33,7 @@ import { AutocompleteSearch } from "./AutocompleteSearch";
 import { AddressSearch } from "./AddressSearch";
 import { BookingForm } from "./BookingForm";
 import { TripCalendar } from "./TripCalendar";
-import { Card, Button, TextField, Sheet, SegmentedControl, Dropdown } from "./ui";
+import { Card, Button, TextField, Sheet, SegmentedControl, Dropdown, DateField, TimeField } from "./ui";
 
 /** Exported for the calendar view, which renders the same entries through this
  * component's own row renderer. Type-only, so there's no runtime import cycle. */
@@ -455,7 +455,7 @@ function PlaceDetailFields({
       />
 
       <View className="mb-4">
-        <TextField label="Date" value={scheduledDate} onChangeText={setScheduledDate} placeholder="YYYY-MM-DD" />
+        <DateField label="Date" value={scheduledDate} onChange={setScheduledDate} />
       </View>
 
       <Sheet visible={pickingCategory} onClose={() => setPickingCategory(false)}>
@@ -632,12 +632,12 @@ function BookingEditFields({
       </View>
 
       <View className="mb-3 flex-row gap-2">
-        <TextField className="flex-1" label="Start date" value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" />
-        <TextField className="flex-1" label="Start time" value={startTime} onChangeText={setStartTime} placeholder="HH:mm" />
+        <DateField className="flex-1" label="Start date" value={startDate} onChange={setStartDate} />
+        <TimeField className="flex-1" label="Start time" value={startTime} onChange={setStartTime} />
       </View>
       <View className="mb-3 flex-row gap-2">
-        <TextField className="flex-1" label="End date" value={endDate} onChangeText={setEndDate} placeholder="YYYY-MM-DD" />
-        <TextField className="flex-1" label="End time" value={endTime} onChangeText={setEndTime} placeholder="HH:mm" />
+        <DateField className="flex-1" label="End date" value={endDate} onChange={setEndDate} />
+        <TimeField className="flex-1" label="End time" value={endTime} onChange={setEndTime} />
       </View>
 
       <View className="mb-3 flex-row gap-2">
@@ -1189,7 +1189,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
                   onChangeText={setAddIdeaText}
                 />
                 <View className="mb-3">
-                  <TextField label="Date (optional)" value={addDate} onChangeText={setAddDate} placeholder="YYYY-MM-DD" />
+                  <DateField label="Date (optional)" value={addDate} onChange={setAddDate} />
                 </View>
               </>
             )}
@@ -1238,7 +1238,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
         >
           <TextField className="mb-3" label="Idea" value={activityDraft} onChangeText={setActivityDraft} />
           <View className="mb-3">
-            <TextField label="Date" value={dateDraft} onChangeText={setDateDraft} placeholder="YYYY-MM-DD" />
+            <DateField label="Date" value={dateDraft} onChange={setDateDraft} />
           </View>
         </Sheet>
       ) : null}

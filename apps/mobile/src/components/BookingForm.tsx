@@ -4,7 +4,7 @@ import type { BookingType, CreateBookingBody, Leg } from "@travel/types";
 import { BOOKING_TYPES, enumLabel } from "@travel/core";
 import { useCreateBooking } from "../lib/offlineMutations/bookings";
 import { AddressSearch } from "./AddressSearch";
-import { TextField, Button, SegmentedControl } from "./ui";
+import { TextField, Button, SegmentedControl, DateField, TimeField } from "./ui";
 
 const TYPE_SEGMENTS = BOOKING_TYPES.map((t) => ({ value: t.key as BookingType, label: t.label }));
 
@@ -69,12 +69,12 @@ export function BookingForm({
       <TextField className="mb-3" label="Confirmation code" value={confirmationCode} onChangeText={setConfirmation} autoCapitalize="characters" />
 
       <View className="mb-3 flex-row gap-2">
-        <TextField className="flex-1" label="Start date" value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" />
-        <TextField className="flex-1" label="Start time" value={startTime} onChangeText={setStartTime} placeholder="HH:mm" />
+        <DateField className="flex-1" label="Start date" value={startDate} onChange={setStartDate} />
+        <TimeField className="flex-1" label="Start time" value={startTime} onChange={setStartTime} />
       </View>
       <View className="mb-3 flex-row gap-2">
-        <TextField className="flex-1" label="End date" value={endDate} onChangeText={setEndDate} placeholder="YYYY-MM-DD" />
-        <TextField className="flex-1" label="End time" value={endTime} onChangeText={setEndTime} placeholder="HH:mm" />
+        <DateField className="flex-1" label="End date" value={endDate} onChange={setEndDate} />
+        <TimeField className="flex-1" label="End time" value={endTime} onChange={setEndTime} />
       </View>
 
       <View className="mb-3 flex-row gap-2">

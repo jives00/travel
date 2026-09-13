@@ -24,7 +24,7 @@ import {
   useDeleteLeg,
 } from "../lib/offlineMutations/trips";
 import { useDismissReadiness, useRestoreReadiness } from "../lib/offlineMutations/readiness";
-import { Card, Button, SegmentedControl, TextField, Sheet, STATUS_BAR_BG } from "./ui";
+import { Card, Button, SegmentedControl, TextField, Sheet, DateField, STATUS_BAR_BG } from "./ui";
 import { TripWeather } from "./TripWeather";
 import { TripItinerary } from "./TripItinerary";
 import { TripMap } from "./TripMap";
@@ -349,19 +349,21 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
         <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">Add city</Text>
         <TextField className="mb-3" label="City" value={cityName} onChangeText={setCityName} placeholder="e.g. Barcelona" />
         <View className="mb-4 flex-row gap-2">
-          <TextField className="flex-1" label="Start date" value={cityStart} onChangeText={setCityStart} placeholder="YYYY-MM-DD" />
-          <TextField className="flex-1" label="End date" value={cityEnd} onChangeText={setCityEnd} placeholder="YYYY-MM-DD" />
+          <DateField className="flex-1" label="Start date" value={cityStart} onChange={setCityStart} />
+          <DateField className="flex-1" label="End date" value={cityEnd} onChange={setCityEnd} />
         </View>
         <Button
           title="Add city"
           loading={addLeg.isPending}
           disabled={!cityName.trim()}
           onPress={() => {
-            const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
+            // The pickers only ever produce a valid "YYYY-MM-DD" or "", so the
+            // shape guard this used to carry (which silently dropped a typo)
+            // is gone.
             addLeg.add({
               city: cityName.trim(),
-              startDate: isDate(cityStart) ? cityStart.trim() : undefined,
-              endDate: isDate(cityEnd) ? cityEnd.trim() : undefined,
+              startDate: cityStart || undefined,
+              endDate: cityEnd || undefined,
             });
             setCityName("");
             setCityStart("");

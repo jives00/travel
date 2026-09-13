@@ -4,6 +4,7 @@ export * from "./itineraryCategory";
 export * from "./legMath";
 export * from "./tripStatus";
 export * from "./tripDates";
+export * from "./wallClock";
 export * from "./tripDays";
 export * from "./budget";
 export * from "./fx";

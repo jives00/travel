@@ -1,4 +1,5 @@
 import type { Booking, Leg, Trip } from "@travel/types";
+import { dateToYmd } from "./wallClock";
 
 /** A MySQL DATE may arrive as "YYYY-MM-DD" or a full ISO datetime ("...T00:00:00.000Z")
  * — normalize to the date portion before reparsing, or a doubled time suffix
@@ -19,11 +20,7 @@ export function daysBetween(a: Date, b: Date): number {
  * backfill an itinerary item's date when it's checked off complete with no
  * date previously set. */
 export function todayDateString(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return dateToYmd(new Date());
 }
 
 /** Today as a UTC-midnight Date, derived from the *local* calendar date — the
