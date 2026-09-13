@@ -78,6 +78,39 @@ describe("rollupBudget", () => {
     expect(r.byLeg.find((l) => l.legId === 1)!.current).toBe(1850); // 1700 + 150
     expect(r.byLeg.find((l) => l.legId === null)!.current).toBe(480);
   });
+
+  it("puts lines with no funding source in the null bucket", () => {
+    const r = rollupBudget(lines);
+    expect(r.bySource).toHaveLength(1);
+    expect(r.bySource[0].fundingSourceId).toBeNull();
+    expect(r.bySource[0].current).toBe(2330);
+  });
+});
+
+describe("rollupBudget by funding source", () => {
+  // A points flight (cash value recorded alongside the miles), a card dinner,
+  // and an unattributed museum ticket.
+  const lines = [
+    { category: "flights", legId: 1, estimatedHome: null, actualHome: 420, fundingSourceId: 3, points: 58000 },
+    { category: "food", legId: 1, estimatedHome: null, actualHome: 80, fundingSourceId: 1 },
+    { category: "activities", legId: 1, estimatedHome: null, actualHome: 25, fundingSourceId: null },
+  ];
+
+  it("splits spend by source", () => {
+    const r = rollupBudget(lines);
+    expect(r.bySource.find((s) => s.fundingSourceId === 3)!.current).toBe(420);
+    expect(r.bySource.find((s) => s.fundingSourceId === 1)!.current).toBe(80);
+    expect(r.bySource.find((s) => s.fundingSourceId === null)!.current).toBe(25);
+  });
+
+  it("sums points per source and trip-wide, without touching money totals", () => {
+    const r = rollupBudget(lines);
+    expect(r.points).toBe(58000);
+    expect(r.bySource.find((s) => s.fundingSourceId === 3)!.points).toBe(58000);
+    expect(r.bySource.find((s) => s.fundingSourceId === 1)!.points).toBe(0);
+    // Points are a different unit — the grand total is still just the money.
+    expect(r.grand.current).toBe(525);
+  });
 });
 
 describe("burnRate", () => {

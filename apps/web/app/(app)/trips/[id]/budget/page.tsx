@@ -13,6 +13,7 @@ export default async function TripBudgetPage({ params }: { params: Promise<{ id:
     queryClient.prefetchQuery(api.queries.budgetQuery(tripId)),
     queryClient.prefetchQuery(api.queries.expensesQuery(tripId)),
     queryClient.prefetchQuery(api.queries.bookingsQuery(tripId)),
+    queryClient.prefetchQuery(api.queries.fundingSourcesQuery()),
   ]);
 
   return (

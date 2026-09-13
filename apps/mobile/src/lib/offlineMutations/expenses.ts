@@ -95,6 +95,8 @@ function recomputeSummary(summary: BudgetSummary, lines: BudgetSummary["lines"])
     legId: l.legId,
     estimatedHome: l.estimateHome,
     actualHome: l.actualHome,
+    fundingSourceId: l.fundingSourceId,
+    points: l.points,
   }));
   const r = rollupBudget(inputs);
   return {
@@ -103,6 +105,8 @@ function recomputeSummary(summary: BudgetSummary, lines: BudgetSummary["lines"])
     grand: r.grand,
     byCategory: r.byCategory as BudgetSummary["byCategory"],
     byLeg: r.byLeg,
+    bySource: r.bySource,
+    points: r.points,
     unresolvedCount: r.unresolvedCount,
   };
 }

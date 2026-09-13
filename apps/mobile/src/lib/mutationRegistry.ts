@@ -23,6 +23,7 @@
 
 import { registerTripMutations } from "./offlineMutations/trips";
 import { registerSettingsMutations } from "./offlineMutations/settings";
+import { registerFundingSourceMutations } from "./offlineMutations/fundingSources";
 import { registerListMutations } from "./offlineMutations/lists";
 import { registerPlaceMutations } from "./offlineMutations/places";
 import { registerItineraryMutations } from "./offlineMutations/itinerary";
@@ -36,6 +37,7 @@ import { registerReadinessMutations } from "./offlineMutations/readiness";
 registerTripMutations();
 // Phase G — Settings
 registerSettingsMutations();
+registerFundingSourceMutations();
 // Phase F — Lists
 registerListMutations();
 // Phase C — Places

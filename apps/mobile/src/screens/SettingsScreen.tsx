@@ -1,9 +1,14 @@
 import { useState } from "react";
-import { View, Text } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { travelApi } from "../lib/api";
 import { queryClient } from "../lib/queryClient";
 import { useUpdateSettings } from "../lib/offlineMutations/settings";
+import {
+  useCreateFundingSource,
+  useRemoveFundingSource,
+  useUpdateFundingSource,
+} from "../lib/offlineMutations/fundingSources";
 import { useTheme } from "../lib/theme";
 import { Screen, Card, SegmentedControl, TextField, Button } from "../components/ui";
 
@@ -168,6 +173,8 @@ export function SettingsScreen() {
         </>
       )}
 
+      <FundingSourcesSection />
+
       <Section title="Data">
         <Card>
           <Text className="mb-2 text-xs text-text-muted">
@@ -177,5 +184,89 @@ export function SettingsScreen() {
         </Card>
       </Section>
     </Screen>
+  );
+}
+
+/** Mirrors web's funding-sources section. Writes go through the offline
+ * mutations so a source added on a plane still shows up in the budget picker
+ * and syncs later. */
+function FundingSourcesSection() {
+  const { data: sources } = useQuery(travelApi.queries.fundingSourcesQuery());
+  const create = useCreateFundingSource();
+  const update = useUpdateFundingSource();
+  const remove = useRemoveFundingSource();
+  const [adding, setAdding] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState("");
+
+  function saveRename(id: number, current: string) {
+    const name = editingName.trim();
+    if (name && name !== current) update.rename(id, name);
+    setEditingId(null);
+  }
+
+  return (
+    <Section title="Funding sources">
+      <Text className="mb-2 text-sm text-text-secondary dark:text-text-secondary-dark">
+        Where the money for an expense or booking came from. Deleting one leaves its budget lines in place — they
+        just go back to unassigned.
+      </Text>
+
+      {(sources ?? []).map((source) => (
+        <Card key={source.id} className="mb-2 flex-row items-center justify-between">
+          {editingId === source.id ? (
+            <>
+              <TextField
+                className="mr-2 flex-1"
+                autoFocus
+                maxLength={80}
+                value={editingName}
+                onChangeText={setEditingName}
+              />
+              <Pressable onPress={() => saveRename(source.id, source.name)}>
+                <Text className="text-sm text-category-transit">Save</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text className="mr-2 flex-1 text-text-primary dark:text-text-primary-dark" numberOfLines={1}>
+                {source.name}
+              </Text>
+              <View className="flex-row gap-4">
+                <Pressable
+                  onPress={() => {
+                    setEditingId(source.id);
+                    setEditingName(source.name);
+                  }}
+                >
+                  <Text className="text-sm text-category-transit">Rename</Text>
+                </Pressable>
+                <Pressable onPress={() => remove.remove(source.id)}>
+                  <Text className="text-sm text-status-critical">Delete</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+        </Card>
+      ))}
+
+      <View className="flex-row gap-2">
+        <TextField
+          className="flex-1"
+          maxLength={80}
+          placeholder="Add a source (e.g. Amex)"
+          value={adding}
+          onChangeText={setAdding}
+        />
+        <Button
+          title="Add"
+          onPress={() => {
+            const name = adding.trim();
+            if (name) create.create(name);
+            setAdding("");
+          }}
+        />
+      </View>
+    </Section>
   );
 }

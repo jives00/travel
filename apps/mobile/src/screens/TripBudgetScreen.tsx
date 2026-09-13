@@ -5,7 +5,7 @@ import type { BudgetLine, CreateExpenseBody, Expense, ExpenseCategory } from "@t
 import { EXPENSE_CATEGORIES, enumLabel } from "@travel/core";
 import { travelApi } from "../lib/api";
 import { useCreateExpense, useUpdateExpense, useRemoveExpense } from "../lib/offlineMutations/expenses";
-import { Screen, Card, Button, SegmentedControl, TextField, Sheet } from "../components/ui";
+import { Screen, Card, Button, SegmentedControl, TextField, Sheet, Dropdown } from "../components/ui";
 import type { TripsScreenProps } from "../navigation/types";
 
 const CATEGORY_BAR: Record<ExpenseCategory, string> = {
@@ -37,7 +37,7 @@ function money(n: number, currency: string): string {
   }
 }
 
-type Grouping = "category" | "leg";
+type Grouping = "category" | "leg" | "source";
 
 export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
   const { tripId } = route.params;
@@ -46,6 +46,7 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
   const budget = budgetQuery.data;
   const { data: expenses } = useQuery(travelApi.queries.expensesQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { data: fundingSources } = useQuery(travelApi.queries.fundingSourcesQuery());
 
   const [grouping, setGrouping] = useState<Grouping>("category");
   const [formOpen, setFormOpen] = useState(false);
@@ -58,6 +59,14 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
     for (const l of trip?.legs ?? []) map.set(l.id, l.city);
     return (legId: number | null) => (legId == null ? "Unassigned" : (map.get(legId) ?? `City ${legId}`));
   }, [trip]);
+
+  const sourceName = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const f of fundingSources ?? []) map.set(f.id, f.name);
+    // A deleted source leaves its lines pointing at nothing, same as never
+    // having set one — both read as "Unassigned".
+    return (id: number | null) => (id == null ? "Unassigned" : (map.get(id) ?? "Unassigned"));
+  }, [fundingSources]);
 
   const expenseById = useMemo(() => {
     const map = new Map<number, Expense>();
@@ -94,10 +103,11 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
 
   const home = budget.homeCurrency;
   const { grand } = budget;
-  const rollupSource = grouping === "category" ? budget.byCategory : budget.byLeg;
+  const rollupSource =
+    grouping === "category" ? budget.byCategory : grouping === "leg" ? budget.byLeg : budget.bySource;
   const maxCurrent = Math.max(1, ...rollupSource.map((r) => r.current));
 
-  const rollups = (
+  const rollups =
     grouping === "category"
       ? [...budget.byCategory]
           .sort((a, b) => b.current - a.current)
@@ -107,15 +117,38 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
             barClass: CATEGORY_BAR[c.category],
             current: c.current,
           }))
-      : [...budget.byLeg]
-          .sort((a, b) => b.current - a.current)
-          .map((l) => ({ key: String(l.legId), label: legName(l.legId), barClass: "bg-category-transit", current: l.current }))
-  );
+      : grouping === "leg"
+        ? [...budget.byLeg]
+            .sort((a, b) => b.current - a.current)
+            .map((l) => ({
+              key: String(l.legId),
+              label: legName(l.legId),
+              barClass: "bg-category-transit",
+              current: l.current,
+            }))
+        : [...budget.bySource]
+            .sort((a, b) => b.current - a.current)
+            .map((r) => ({
+              key: String(r.fundingSourceId),
+              label: sourceName(r.fundingSourceId),
+              barClass: "bg-category-transit",
+              current: r.current,
+            }));
 
   const groups = new Map<string, { label: string; lines: BudgetLine[] }>();
   for (const line of budget.lines) {
-    const key = grouping === "category" ? (line.category as string) : String(line.legId);
-    const label = grouping === "category" ? enumLabel(EXPENSE_CATEGORIES, line.category) : legName(line.legId);
+    const key =
+      grouping === "category"
+        ? (line.category as string)
+        : grouping === "leg"
+          ? String(line.legId)
+          : String(line.fundingSourceId);
+    const label =
+      grouping === "category"
+        ? enumLabel(EXPENSE_CATEGORIES, line.category)
+        : grouping === "leg"
+          ? legName(line.legId)
+          : sourceName(line.fundingSourceId);
     if (!groups.has(key)) groups.set(key, { label, lines: [] });
     groups.get(key)!.lines.push(line);
   }
@@ -133,6 +166,13 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
           <Total label="Actual" value={money(grand.actual, home)} />
           <VarianceTotal value={grand.variance} currency={home} />
         </View>
+        {/* Points sit outside the money total on purpose — they have no
+            currency, so folding them into it would be meaningless. */}
+        {budget.points > 0 && (
+          <Text className="mt-1 text-sm text-text-secondary dark:text-text-secondary-dark">
+            plus {budget.points.toLocaleString()} points / miles
+          </Text>
+        )}
         {budget.unresolvedCount > 0 && (
           <View className="mt-3 self-start rounded bg-status-warning/15 px-2 py-1">
             <Text className="text-xs text-status-warning">
@@ -159,6 +199,7 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
           segments={[
             { value: "category", label: "By category" },
             { value: "leg", label: "By city" },
+            { value: "source", label: "By source" },
           ]}
         />
       )}
@@ -196,6 +237,7 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
               key={line.key}
               line={line}
               home={home}
+              sourceName={sourceName}
               onEdit={
                 line.source === "manual" && line.expenseId != null
                   ? () => {
@@ -227,6 +269,7 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
           bookings={(bookings ?? [])
             .filter((b) => b.price != null)
             .map((b) => ({ id: b.id, title: b.title, price: b.price as number, currency: b.currency }))}
+          fundingSources={(fundingSources ?? []).map((f) => ({ id: f.id, name: f.name }))}
           onDone={() => setFormOpen(false)}
         />
       </Sheet>
@@ -259,11 +302,13 @@ function VarianceTotal({ value, currency }: { value: number; currency: string })
 function BudgetLineRow({
   line,
   home,
+  sourceName,
   onEdit,
   onDelete,
 }: {
   line: BudgetLine;
   home: string;
+  sourceName: (id: number | null) => string;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -285,6 +330,12 @@ function BudgetLineRow({
           {line.estimateHome != null ? `est ${money(line.estimateHome, home)}` : ""}
           {line.estimateHome != null && line.actualHome != null ? " · " : ""}
           {line.actualHome != null ? `actual ${money(line.actualHome, home)}${line.actualFromBooking ? " (via booking)" : ""}` : ""}
+          {line.fundingSourceId != null
+            ? `${line.estimateHome != null || line.actualHome != null ? " · " : ""}${sourceName(line.fundingSourceId)}`
+            : ""}
+          {line.points != null && line.points > 0
+            ? `${line.estimateHome != null || line.actualHome != null || line.fundingSourceId != null ? " · " : ""}${line.points.toLocaleString()} pts`
+            : ""}
         </Text>
       </View>
       <View className="items-end">
@@ -318,6 +369,7 @@ function ExpenseForm({
   editing,
   legs,
   bookings,
+  fundingSources,
   onDone,
 }: {
   tripId: number;
@@ -325,6 +377,7 @@ function ExpenseForm({
   editing: Expense | null;
   legs: { id: number; city: string }[];
   bookings: { id: number; title: string; price: number; currency: string | null }[];
+  fundingSources: { id: number; name: string }[];
   onDone: () => void;
 }) {
   const createExpense = useCreateExpense(tripId);
@@ -341,6 +394,8 @@ function ExpenseForm({
   const [actAmount, setActAmount] = useState(editing?.actual ? String(editing.actual.amount) : "");
   const [actCurrency, setActCurrency] = useState(editing?.actual?.currency ?? home);
   const [actualBookingId, setActualBookingId] = useState<number | null>(editing?.actualBookingId ?? null);
+  const [fundingSourceId, setFundingSourceId] = useState<number | null>(editing?.fundingSourceId ?? null);
+  const [points, setPoints] = useState(editing?.points != null ? String(editing.points) : "");
   const [notes, setNotes] = useState(editing?.notes ?? "");
 
   function buildBody(): CreateExpenseBody {
@@ -348,6 +403,10 @@ function ExpenseForm({
       category,
       label: label.trim(),
       legId,
+      fundingSourceId,
+      // Entered with separators ("58,000") — strip them rather than letting
+      // Number() turn the whole thing into NaN.
+      points: points.trim() ? Number(points.replace(/[^0-9]/g, "")) : null,
       notes: notes.trim() || null,
       estimate: estAmount.trim() ? { amount: Number(estAmount), currency: estCurrency.toUpperCase() } : null,
     };
@@ -431,6 +490,27 @@ function ExpenseForm({
           )}
         </View>
       )}
+
+      <Dropdown
+        className="mb-3"
+        label="Funded by"
+        value={fundingSourceId}
+        options={[
+          { value: null, label: "No funding source" },
+          ...fundingSources.map((f) => ({ value: f.id as number | null, label: f.name })),
+        ]}
+        onChange={setFundingSourceId}
+      />
+      {/* Points are a quantity, not money — record the cash value above and the
+          points burned here. They never enter a home-currency total. */}
+      <TextField
+        className="mb-4"
+        label="Points / miles"
+        value={points}
+        onChangeText={setPoints}
+        keyboardType="number-pad"
+        placeholder="Optional"
+      />
 
       <TextField className="mb-4" label="Notes" value={notes} onChangeText={setNotes} multiline placeholder="Optional" />
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { FundingSource } from "@travel/types";
 import { travelApi } from "@/lib/api";
 import { useTheme } from "@/lib/theme-context";
 
@@ -209,6 +210,8 @@ export function SettingsForm() {
         </div>
       </section>
 
+      <FundingSourcesSection />
+
       <section className="rounded border border-gridline bg-surface p-4">
         <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Data</h2>
         <button onClick={clearCache} className="text-sm text-status-critical">
@@ -216,5 +219,152 @@ export function SettingsForm() {
         </button>
       </section>
     </div>
+  );
+}
+
+/** The API client throws an Error whose message is the raw response body — a
+ * JSON `{ "error": "..." }` for our 4xx replies. Surface just the message. */
+function errorText(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  try {
+    return (JSON.parse(raw) as { error?: string }).error ?? raw;
+  } catch {
+    return raw;
+  }
+}
+
+/** Manage the funding sources a budget line can be attributed to. Seeded with
+ * "Regular cash" / "Off balance" / "CC points" (migration 035); everything past
+ * that is the user's own vocabulary — the app never branches on the name. */
+function FundingSourcesSection() {
+  const queryClient = useQueryClient();
+  // `error` is read, not ignored: a failed load and an empty list look
+  // identical otherwise, which is exactly what made a 401 here read as "there
+  // are no funding sources".
+  const { data: sources, error: loadError } = useQuery(travelApi.queries.fundingSourcesQuery());
+  const [adding, setAdding] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function refresh() {
+    await queryClient.invalidateQueries({ queryKey: ["fundingSources"] });
+  }
+
+  // The name is the only thing a source has, so a duplicate is a real 409 from
+  // the server rather than something to swallow — surface it.
+  async function run(work: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await work();
+      await refresh();
+      return true;
+    } catch (err) {
+      setError(errorText(err));
+      return false;
+    }
+  }
+
+  async function add() {
+    const name = adding.trim();
+    if (!name) return;
+    if (await run(() => travelApi.fundingSources.create({ name }))) setAdding("");
+  }
+
+  async function rename(source: FundingSource) {
+    const name = editingName.trim();
+    if (!name || name === source.name) {
+      setEditingId(null);
+      return;
+    }
+    if (await run(() => travelApi.fundingSources.update(source.id, { name }))) setEditingId(null);
+  }
+
+  return (
+    <section className="rounded border border-gridline bg-surface p-4">
+      <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Funding sources</h2>
+      <p className="mb-3 text-sm text-text-secondary">
+        Where the money for an expense or booking came from. Deleting one leaves its budget lines in place — they
+        just go back to unassigned.
+      </p>
+
+      <ul className="mb-3 divide-y divide-gridline rounded border border-gridline">
+        {(sources ?? []).map((source) => (
+          <li key={source.id} className="flex items-center gap-2 p-2">
+            {editingId === source.id ? (
+              <>
+                <input
+                  autoFocus
+                  className="flex-1 rounded border border-gridline bg-transparent p-1 text-text-primary"
+                  maxLength={80}
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") rename(source);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                />
+                <button onClick={() => rename(source)} className="text-sm text-category-transit">
+                  Save
+                </button>
+                <button onClick={() => setEditingId(null)} className="text-sm text-text-secondary">
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-text-primary">{source.name}</span>
+                <button
+                  onClick={() => {
+                    setEditingId(source.id);
+                    setEditingName(source.name);
+                    setError(null);
+                  }}
+                  className="text-sm text-text-secondary hover:text-text-primary"
+                >
+                  Rename
+                </button>
+                <button
+                  onClick={() => run(() => travelApi.fundingSources.remove(source.id))}
+                  className="text-sm text-text-muted hover:text-status-critical"
+                >
+                  Delete
+                </button>
+              </>
+            )}
+          </li>
+        ))}
+        {loadError && (
+          <li className="p-3 text-center text-sm text-status-critical">
+            Couldn&rsquo;t load funding sources — {errorText(loadError)}
+          </li>
+        )}
+        {!loadError && sources?.length === 0 && (
+          <li className="p-3 text-center text-sm text-text-muted">No funding sources yet.</li>
+        )}
+      </ul>
+
+      <div className="flex gap-2">
+        <input
+          className="flex-1 rounded border border-gridline bg-transparent p-1 text-text-primary"
+          placeholder="Add a source (e.g. Amex, gift card)"
+          maxLength={80}
+          value={adding}
+          onChange={(e) => setAdding(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") add();
+          }}
+        />
+        <button
+          onClick={add}
+          disabled={!adding.trim()}
+          className="rounded bg-category-transit px-3 py-1 text-sm text-white disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+
+      {error && <p className="mt-2 text-sm text-status-critical">{error}</p>}
+    </section>
   );
 }

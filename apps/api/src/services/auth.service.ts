@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { getPool } from "../db";
+import { seedFundingSources } from "../routes/funding-sources.routes";
 
 const ACCESS_TOKEN_TTL = "15m";
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -76,8 +77,9 @@ export async function ensureAdminUser(): Promise<void> {
   if (existing) return;
 
   const passwordHash = await bcrypt.hash(password, 10);
-  await getPool().query("INSERT INTO users (username, password_hash) VALUES (?, ?)", [
+  const [result] = await getPool().query("INSERT INTO users (username, password_hash) VALUES (?, ?)", [
     username,
     passwordHash,
   ]);
+  await seedFundingSources((result as { insertId: number }).insertId);
 }

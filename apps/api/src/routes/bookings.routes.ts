@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { CreateBookingBody, UpdateBookingBody } from "@travel/types";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
+import { ownsFundingSource } from "./funding-sources.routes";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -10,7 +11,8 @@ function userId(request: FastifyRequest): number {
 const BOOKING_SELECT = `
   SELECT id, trip_id AS tripId, leg_id AS legId, type, title,
          confirmation_code AS confirmationCode, flight_number AS flightNumber,
-         start_at AS startAt, end_at AS endAt, price, currency, place_id AS placeId,
+         start_at AS startAt, end_at AS endAt, price, currency,
+         funding_source_id AS fundingSourceId, points, place_id AS placeId,
          address, lat, lng, notes, completed,
          created_at AS createdAt, updated_at AS updatedAt
   FROM bookings
@@ -46,9 +48,12 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
     const body = parsed.data;
 
+    if (body.fundingSourceId != null && !(await ownsFundingSource(body.fundingSourceId, userId(request))))
+      return reply.code(400).send({ error: "unknown funding source" });
+
     const [result] = await getPool().query(
-      `INSERT INTO bookings (trip_id, leg_id, type, title, confirmation_code, flight_number, start_at, end_at, price, currency, place_id, address, lat, lng, notes, completed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO bookings (trip_id, leg_id, type, title, confirmation_code, flight_number, start_at, end_at, price, currency, funding_source_id, points, place_id, address, lat, lng, notes, completed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         request.params.tripId,
         body.legId ?? null,
@@ -60,6 +65,8 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
         body.endAt ?? null,
         body.price ?? null,
         body.currency ?? null,
+        body.fundingSourceId ?? null,
+        body.points ?? null,
         body.placeId ?? null,
         body.address ?? null,
         body.lat ?? null,
@@ -84,6 +91,9 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
       if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
       const body = parsed.data;
 
+      if (body.fundingSourceId != null && !(await ownsFundingSource(body.fundingSourceId, userId(request))))
+        return reply.code(400).send({ error: "unknown funding source" });
+
       const fields: string[] = [];
       const params: unknown[] = [];
       for (const [key, column] of [
@@ -96,6 +106,8 @@ export async function bookingsRoutes(app: FastifyInstance): Promise<void> {
         ["endAt", "end_at"],
         ["price", "price"],
         ["currency", "currency"],
+        ["fundingSourceId", "funding_source_id"],
+        ["points", "points"],
         ["placeId", "place_id"],
         ["address", "address"],
         ["lat", "lat"],
@@ -146,7 +158,8 @@ export async function bookingsGlobalRoutes(app: FastifyInstance): Promise<void> 
     const [rows] = await getPool().query(
       `SELECT b.id, b.trip_id AS tripId, b.leg_id AS legId, b.type, b.title,
               b.confirmation_code AS confirmationCode, b.flight_number AS flightNumber,
-              b.start_at AS startAt, b.end_at AS endAt, b.price, b.currency, b.place_id AS placeId,
+              b.start_at AS startAt, b.end_at AS endAt, b.price, b.currency,
+              b.funding_source_id AS fundingSourceId, b.points, b.place_id AS placeId,
               b.address, b.lat, b.lng, b.notes, b.completed,
               b.created_at AS createdAt, b.updated_at AS updatedAt
        FROM bookings b

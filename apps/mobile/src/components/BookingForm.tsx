@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { View, Text } from "react-native";
+import { useQuery } from "@tanstack/react-query";
 import type { BookingType, CreateBookingBody, Leg } from "@travel/types";
 import { BOOKING_TYPES, enumLabel } from "@travel/core";
+import { travelApi } from "../lib/api";
 import { useCreateBooking } from "../lib/offlineMutations/bookings";
 import { AddressSearch } from "./AddressSearch";
-import { TextField, Button, SegmentedControl, DateField, TimeField } from "./ui";
+import { TextField, Button, SegmentedControl, DateField, TimeField, Dropdown } from "./ui";
 
 const TYPE_SEGMENTS = BOOKING_TYPES.map((t) => ({ value: t.key as BookingType, label: t.label }));
 
@@ -27,6 +29,7 @@ export function BookingForm({
   onSaved: () => void;
 }) {
   const createBooking = useCreateBooking(tripId);
+  const { data: fundingSources } = useQuery(travelApi.queries.fundingSourcesQuery());
   const [type, setType] = useState<BookingType>("flight");
   const [title, setTitle] = useState("");
   const [confirmationCode, setConfirmation] = useState("");
@@ -36,6 +39,8 @@ export function BookingForm({
   const [endTime, setEndTime] = useState("");
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("");
+  const [fundingSourceId, setFundingSourceId] = useState<number | null>(null);
+  const [points, setPoints] = useState("");
   const [legId, setLegId] = useState<number | null>(defaultLegId ?? null);
   const [address, setAddress] = useState("");
   const [lat, setLat] = useState<number | null>(null);
@@ -51,6 +56,10 @@ export function BookingForm({
       endAt: combine(endDate, endTime),
       price: price.trim() ? Number(price) : undefined,
       currency: currency.trim().length === 3 ? currency.trim().toUpperCase() : undefined,
+      fundingSourceId: fundingSourceId ?? undefined,
+      // Entered with separators ("58,000") — strip them rather than letting
+      // Number() turn the whole thing into NaN.
+      points: points.trim() ? Number(points.replace(/[^0-9]/g, "")) : undefined,
       legId: legId ?? undefined,
       address: address || undefined,
       lat: lat ?? undefined,
@@ -81,6 +90,26 @@ export function BookingForm({
         <TextField className="flex-1" label="Price" value={price} onChangeText={setPrice} keyboardType="decimal-pad" />
         <TextField className="flex-1" label="Currency" value={currency} onChangeText={setCurrency} autoCapitalize="characters" maxLength={3} placeholder="EUR" />
       </View>
+
+      <Dropdown
+        className="mb-3"
+        label="Funded by"
+        value={fundingSourceId}
+        options={[
+          { value: null, label: "No funding source" },
+          ...(fundingSources ?? []).map((f) => ({ value: f.id as number | null, label: f.name })),
+        ]}
+        onChange={setFundingSourceId}
+      />
+      {/* A quantity, not money: points never enter a home-currency total. */}
+      <TextField
+        className="mb-3"
+        label="Points / miles"
+        value={points}
+        onChangeText={setPoints}
+        keyboardType="number-pad"
+        placeholder="Optional"
+      />
 
       {legs.length > 0 && (
         <>

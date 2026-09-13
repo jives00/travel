@@ -27,6 +27,7 @@ import { travelApi } from "@/lib/api";
 import { Modal } from "../trip-itinerary";
 import {
   BookingFields,
+  FundingSourceSelect,
   type BookingFormState,
   formToUpdateBody as bookingFormToUpdateBody,
   bookingToForm,
@@ -95,7 +96,7 @@ function errorText(err: unknown): string {
   }
 }
 
-type Grouping = "category" | "leg";
+type Grouping = "category" | "leg" | "source";
 
 export function TripBudget({ tripId }: { tripId: number }) {
   const queryClient = useQueryClient();
@@ -103,6 +104,7 @@ export function TripBudget({ tripId }: { tripId: number }) {
   const { data: budget } = useQuery(travelApi.queries.budgetQuery(tripId));
   const { data: expenses } = useQuery(travelApi.queries.expensesQuery(tripId));
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { data: fundingSources } = useQuery(travelApi.queries.fundingSourcesQuery());
 
   const [grouping, setGrouping] = useState<Grouping>("category");
   const [formOpen, setFormOpen] = useState(false);
@@ -124,6 +126,14 @@ export function TripBudget({ tripId }: { tripId: number }) {
     });
     return (legId: number | null) => (legId == null ? rgbVar(CITY_OVERFLOW_COLOR) : (map.get(String(legId)) ?? rgbVar(CITY_OVERFLOW_COLOR)));
   }, [trip]);
+
+  const sourceName = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const f of fundingSources ?? []) map.set(f.id, f.name);
+    // A deleted source leaves its lines pointing at nothing, same as never
+    // having set one — both read as "Unassigned".
+    return (id: number | null) => (id == null ? "Unassigned" : (map.get(id) ?? "Unassigned"));
+  }, [fundingSources]);
 
   const expenseById = useMemo(() => {
     const map = new Map<number, Expense>();
@@ -176,6 +186,16 @@ export function TripBudget({ tripId }: { tripId: number }) {
       color: rgbVar(CATEGORY_COLOR_VAR[c.category]),
     }));
 
+  const sourceChartData = [...budget.bySource]
+    .filter((r) => r.current > 0)
+    .sort((a, b) => b.current - a.current)
+    .map((r, i) => ({
+      key: String(r.fundingSourceId),
+      label: sourceName(r.fundingSourceId),
+      current: r.current,
+      color: rgbVar(CITY_COLOR_VARS[i % CITY_COLOR_VARS.length]),
+    }));
+
   const cityChartData = [...budget.byLeg]
     .filter((l) => l.current > 0)
     .sort((a, b) => b.current - a.current)
@@ -189,11 +209,19 @@ export function TripBudget({ tripId }: { tripId: number }) {
   // Lines grouped for the list, honoring the same toggle. Sorted
   // alphabetically by label, with the catch-all group ("Other" / "Unassigned")
   // pinned last regardless of where it falls alphabetically.
+  const groupKey = (line: BudgetLine) =>
+    grouping === "category" ? line.category : grouping === "leg" ? String(line.legId) : String(line.fundingSourceId);
+  const groupLabel = (line: BudgetLine) =>
+    grouping === "category"
+      ? enumLabel(EXPENSE_CATEGORIES, line.category)
+      : grouping === "leg"
+        ? legName(line.legId)
+        : sourceName(line.fundingSourceId);
+
   const groups = new Map<string, { label: string; lines: BudgetLine[] }>();
   for (const line of budget.lines) {
-    const key = grouping === "category" ? line.category : String(line.legId);
-    const label = grouping === "category" ? enumLabel(EXPENSE_CATEGORIES, line.category) : legName(line.legId);
-    if (!groups.has(key)) groups.set(key, { label, lines: [] });
+    const key = groupKey(line);
+    if (!groups.has(key)) groups.set(key, { label: groupLabel(line), lines: [] });
     groups.get(key)!.lines.push(line);
   }
   const sortedGroups = [...groups.entries()]
@@ -249,6 +277,13 @@ export function TripBudget({ tripId }: { tripId: number }) {
             </div>
           </div>
         </div>
+        {/* Points sit outside the money total on purpose — they have no
+            currency, so folding them into it would be meaningless. */}
+        {budget.points > 0 && (
+          <div className="mt-2 text-sm text-text-secondary">
+            plus {budget.points.toLocaleString()} points / miles
+          </div>
+        )}
         {budget.unresolvedCount > 0 && (
           <div className="mt-4 inline-flex items-center gap-2 rounded bg-status-warning/15 px-3 py-1 text-sm text-status-warning">
             <span className="material-symbols-outlined text-base" aria-hidden="true">
@@ -264,7 +299,7 @@ export function TripBudget({ tripId }: { tripId: number }) {
         {/* Line items */}
         <div className="space-y-4">
           <div className="flex gap-2">
-            {(["category", "leg"] as const).map((g) => (
+            {(["category", "leg", "source"] as const).map((g) => (
               <button
                 key={g}
                 onClick={() => setGrouping(g)}
@@ -272,7 +307,7 @@ export function TripBudget({ tripId }: { tripId: number }) {
                   grouping === g ? "bg-category-transit text-white" : "border border-gridline text-text-secondary"
                 }`}
               >
-                {g === "category" ? "By category" : "By city"}
+                {g === "category" ? "By category" : g === "leg" ? "By city" : "By source"}
               </button>
             ))}
           </div>
@@ -287,6 +322,7 @@ export function TripBudget({ tripId }: { tripId: number }) {
                       key={line.key}
                       line={line}
                       home={home}
+                      sourceName={sourceName}
                       onEdit={
                         line.source === "manual" && line.expenseId != null
                           ? () => {
@@ -330,6 +366,9 @@ export function TripBudget({ tripId }: { tripId: number }) {
           </ChartCard>
           <ChartCard title="By city">
             <CityPieChart data={cityChartData} home={home} />
+          </ChartCard>
+          <ChartCard title="By funding source">
+            <CityPieChart data={sourceChartData} home={home} />
           </ChartCard>
         </div>
       </div>
@@ -528,11 +567,13 @@ function CityPieChart({ data, home }: { data: ChartDatum[]; home: string }) {
 function BudgetLineRow({
   line,
   home,
+  sourceName,
   onEdit,
   onDelete,
 }: {
   line: BudgetLine;
   home: string;
+  sourceName: (id: number | null) => string;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -565,6 +606,18 @@ function BudgetLineRow({
               {line.actualCurrency && line.actualCurrency !== home && line.actualAmount != null && (
                 <span className="text-text-muted"> — {moneyExact(line.actualAmount, line.actualCurrency)}</span>
               )}
+            </span>
+          )}
+          {line.fundingSourceId != null && (
+            <span>
+              {(line.estimateHome != null || line.actualHome != null) && " · "}
+              {sourceName(line.fundingSourceId)}
+            </span>
+          )}
+          {line.points != null && line.points > 0 && (
+            <span>
+              {(line.estimateHome != null || line.actualHome != null || line.fundingSourceId != null) && " · "}
+              {line.points.toLocaleString()} pts
             </span>
           )}
         </div>
@@ -602,6 +655,8 @@ interface FormState {
   actAmount: string;
   actCurrency: string;
   actualBookingId: string;
+  fundingSourceId: string;
+  points: string;
   notes: string;
 }
 
@@ -616,6 +671,8 @@ function expenseToForm(e: Expense, home: string): FormState {
     actAmount: e.actual ? String(e.actual.amount) : "",
     actCurrency: e.actual?.currency ?? home,
     actualBookingId: e.actualBookingId != null ? String(e.actualBookingId) : "",
+    fundingSourceId: e.fundingSourceId != null ? String(e.fundingSourceId) : "",
+    points: e.points != null ? String(e.points) : "",
     notes: e.notes ?? "",
   };
 }
@@ -650,6 +707,8 @@ function ExpenseForm({
           actAmount: "",
           actCurrency: home,
           actualBookingId: "",
+          fundingSourceId: "",
+          points: "",
           notes: "",
         },
   );
@@ -662,6 +721,10 @@ function ExpenseForm({
       category: form.category,
       label: form.label.trim(),
       legId: form.legId ? Number(form.legId) : null,
+      fundingSourceId: form.fundingSourceId ? Number(form.fundingSourceId) : null,
+      // Entered with separators ("58,000") — strip them rather than letting
+      // Number() turn the whole thing into NaN.
+      points: form.points.trim() ? Number(form.points.replace(/[^0-9]/g, "")) : null,
       notes: form.notes.trim() || null,
       estimate: form.estAmount ? { amount: Number(form.estAmount), currency: form.estCurrency } : null,
     };
@@ -810,6 +873,29 @@ function ExpenseForm({
           {form.actualMode === "booking" && bookings.length === 0 && (
             <p className="mt-1 text-xs text-text-muted">No bookings with a price on this trip yet.</p>
           )}
+        </div>
+
+        <div>
+          <label className="text-xs uppercase text-text-muted">Funded by</label>
+          <div className="mt-1 flex gap-2">
+            <FundingSourceSelect
+              className={inputClass}
+              value={form.fundingSourceId}
+              onChange={(fundingSourceId) => set({ fundingSourceId })}
+            />
+            <input
+              className={inputClass}
+              placeholder="Points / miles"
+              inputMode="numeric"
+              value={form.points}
+              onChange={(e) => set({ points: e.target.value })}
+            />
+          </div>
+          {/* Points are a quantity, not money — record the cash value the
+              booking would have cost above, and the points burned here. */}
+          <p className="mt-1 text-xs text-text-muted">
+            Points are tracked separately and never added to the money totals.
+          </p>
         </div>
 
         <textarea

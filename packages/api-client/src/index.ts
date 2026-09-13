@@ -13,6 +13,7 @@ import { createBookingsEndpoints } from "./endpoints/bookings";
 import { createExpensesEndpoints } from "./endpoints/expenses";
 import { createListsEndpoints } from "./endpoints/lists";
 import { createSettingsEndpoints } from "./endpoints/settings";
+import { createFundingSourcesEndpoints } from "./endpoints/fundingSources";
 import { createMapEndpoints } from "./endpoints/map";
 import { createWishlistEndpoints } from "./endpoints/wishlist";
 
@@ -25,6 +26,7 @@ import { createBookingsQueries } from "./queries/bookingsQuery";
 import { createBudgetQueries } from "./queries/budgetQuery";
 import { createListsQueries } from "./queries/listsQuery";
 import { createSettingsQueries } from "./queries/settingsQuery";
+import { createFundingSourcesQueries } from "./queries/fundingSourcesQuery";
 import { createMapQueries } from "./queries/mapQuery";
 import { createWishlistQueries } from "./queries/wishlistQuery";
 
@@ -62,6 +64,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
   const expenses = createExpensesEndpoints(request);
   const lists = createListsEndpoints(request);
   const settings = createSettingsEndpoints(request);
+  const fundingSources = createFundingSourcesEndpoints(request);
   const map = createMapEndpoints(request);
   const wishlist = createWishlistEndpoints(request);
 
@@ -77,6 +80,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
     expenses,
     lists,
     settings,
+    fundingSources,
     map,
     wishlist,
     queries: {
@@ -89,6 +93,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
       ...createBudgetQueries(expenses),
       ...createListsQueries(lists),
       ...createSettingsQueries(settings),
+      ...createFundingSourcesQueries(fundingSources),
       ...createMapQueries(map),
       ...createWishlistQueries(wishlist),
     },

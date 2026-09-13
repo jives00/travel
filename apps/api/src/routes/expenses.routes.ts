@@ -4,6 +4,7 @@ import { convert, rollupBudget, bookingCategory, type BudgetInputLine } from "@t
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { getFxRate, FxUnavailableError } from "../services/fx.client";
+import { ownsFundingSource } from "./funding-sources.routes";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -40,6 +41,8 @@ interface ExpenseRow {
   actFxRate: number | null;
   actHomeAmount: number | null;
   actualBookingId: number | null;
+  fundingSourceId: number | null;
+  points: number | null;
   homeCurrency: string;
   placeId: number | null;
   itineraryItemId: number | null;
@@ -52,7 +55,8 @@ const EXPENSE_SELECT = `
   SELECT id, trip_id AS tripId, leg_id AS legId, category, label,
          est_amount AS estAmount, est_currency AS estCurrency, est_fx_rate AS estFxRate, est_home_amount AS estHomeAmount,
          act_amount AS actAmount, act_currency AS actCurrency, act_fx_rate AS actFxRate, act_home_amount AS actHomeAmount,
-         actual_booking_id AS actualBookingId, home_currency AS homeCurrency,
+         actual_booking_id AS actualBookingId, funding_source_id AS fundingSourceId, points,
+         home_currency AS homeCurrency,
          place_id AS placeId, itinerary_item_id AS itineraryItemId, notes,
          created_at AS createdAt, updated_at AS updatedAt
   FROM expenses
@@ -74,6 +78,8 @@ function mapExpense(r: ExpenseRow): Expense {
         ? { amount: r.actAmount, currency: r.actCurrency!, fxRate: r.actFxRate!, homeAmount: r.actHomeAmount! }
         : null,
     actualBookingId: r.actualBookingId,
+    fundingSourceId: r.fundingSourceId,
+    points: r.points,
     homeCurrency: r.homeCurrency,
     placeId: r.placeId,
     itineraryItemId: r.itineraryItemId,
@@ -123,6 +129,8 @@ interface BookingRow {
   title: string;
   price: number | null;
   currency: string | null;
+  fundingSourceId: number | null;
+  points: number | null;
 }
 
 export async function expensesRoutes(app: FastifyInstance): Promise<void> {
@@ -145,6 +153,9 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
     const body = parsed.data;
 
+    if (body.fundingSourceId != null && !(await ownsFundingSource(body.fundingSourceId, uid)))
+      return reply.code(400).send({ error: "unknown funding source" });
+
     const homeCurrency = await resolveHomeCurrency(request.params.tripId, uid);
     // A linked booking supplies the actual — a typed actual is ignored in that case.
     const linkedBooking = body.actualBookingId ?? null;
@@ -165,8 +176,9 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
          (trip_id, leg_id, category, label,
           est_amount, est_currency, est_fx_rate, est_home_amount,
           act_amount, act_currency, act_fx_rate, act_home_amount,
-          actual_booking_id, home_currency, place_id, itinerary_item_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          actual_booking_id, funding_source_id, points,
+          home_currency, place_id, itinerary_item_id, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         request.params.tripId,
         body.legId ?? null,
@@ -175,6 +187,8 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         est.amount, est.currency, est.fxRate, est.homeAmount,
         act.amount, act.currency, act.fxRate, act.homeAmount,
         linkedBooking,
+        body.fundingSourceId ?? null,
+        body.points ?? null,
         homeCurrency,
         body.placeId ?? null,
         body.itineraryItemId ?? null,
@@ -196,6 +210,9 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
       const parsed = UpdateExpenseBody.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
       const body = parsed.data;
+
+      if (body.fundingSourceId != null && !(await ownsFundingSource(body.fundingSourceId, uid)))
+        return reply.code(400).send({ error: "unknown funding source" });
 
       // Load the current row (also verifies it belongs to this trip).
       const [existingRows] = await getPool().query(`${EXPENSE_SELECT} WHERE id = ? AND trip_id = ?`, [
@@ -219,6 +236,8 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
       if (body.placeId !== undefined) set("place_id", body.placeId);
       if (body.itineraryItemId !== undefined) set("itinerary_item_id", body.itineraryItemId);
       if (body.notes !== undefined) set("notes", body.notes);
+      if (body.fundingSourceId !== undefined) set("funding_source_id", body.fundingSourceId);
+      if (body.points !== undefined) set("points", body.points);
 
       try {
         if (body.estimate !== undefined) {
@@ -289,7 +308,8 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
       request.params.tripId,
     ]);
     const [bookingRows] = await getPool().query(
-      `SELECT id, leg_id AS legId, type, title, price, currency
+      `SELECT id, leg_id AS legId, type, title, price, currency,
+              funding_source_id AS fundingSourceId, points
          FROM bookings WHERE trip_id = ? AND price IS NOT NULL`,
       [request.params.tripId],
     );
@@ -336,9 +356,18 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         actualCurrency,
         actualHome,
         actualFromBooking,
+        fundingSourceId: r.fundingSourceId,
+        points: r.points,
         unresolved: estimateHome != null && actualHome == null,
       });
-      inputs.push({ category: r.category, legId: r.legId, estimatedHome: estimateHome, actualHome });
+      inputs.push({
+        category: r.category,
+        legId: r.legId,
+        estimatedHome: estimateHome,
+        actualHome,
+        fundingSourceId: r.fundingSourceId,
+        points: r.points,
+      });
     }
 
     // Priced bookings not linked to any expense → their own actual-only lines.
@@ -361,9 +390,18 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         actualCurrency: b.currency ?? homeCurrency,
         actualHome,
         actualFromBooking: true,
+        fundingSourceId: b.fundingSourceId,
+        points: b.points,
         unresolved: false,
       });
-      inputs.push({ category, legId: b.legId, estimatedHome: null, actualHome });
+      inputs.push({
+        category,
+        legId: b.legId,
+        estimatedHome: null,
+        actualHome,
+        fundingSourceId: b.fundingSourceId,
+        points: b.points,
+      });
     }
 
     const rollup = rollupBudget(inputs);
@@ -372,6 +410,8 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
       grand: rollup.grand,
       byCategory: rollup.byCategory as import("@travel/types").BudgetCategoryRollup[],
       byLeg: rollup.byLeg,
+      bySource: rollup.bySource,
+      points: rollup.points,
       unresolvedCount: rollup.unresolvedCount,
       lines,
     } satisfies import("@travel/types").BudgetSummary;

@@ -18,6 +18,7 @@ import { bookingsRoutes, bookingsGlobalRoutes } from "./routes/bookings.routes";
 import { expensesRoutes } from "./routes/expenses.routes";
 import { listsRoutes } from "./routes/lists.routes";
 import { settingsRoutes } from "./routes/settings.routes";
+import { fundingSourcesRoutes } from "./routes/funding-sources.routes";
 import { mapRoutes } from "./routes/map.routes";
 import { wishlistRoutes } from "./routes/wishlist.routes";
 import { exportRoutes } from "./routes/export.routes";
@@ -59,6 +60,7 @@ export function buildApp(): FastifyInstance {
   void app.register(expensesRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/expenses/*, /budget
   void app.register(listsRoutes, { prefix: "/api/lists" });
   void app.register(settingsRoutes, { prefix: "/api/settings" });
+  void app.register(fundingSourcesRoutes, { prefix: "/api/funding-sources" });
   void app.register(mapRoutes, { prefix: "/api/map" });
   void app.register(wishlistRoutes, { prefix: "/api/wishlist" });
   void app.register(exportRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/export/*

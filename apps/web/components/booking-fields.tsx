@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { Booking, BookingType, CreateBookingBody, UpdateBookingBody } from "@travel/types";
 import type { AutocompleteSuggestion } from "@travel/api-client";
 import { travelApi } from "@/lib/api";
@@ -27,6 +28,8 @@ export interface BookingFormState {
   endTime: string;
   price: string;
   currency: string;
+  fundingSourceId: string;
+  points: string;
   legId: string;
   placeId: string;
   address: string;
@@ -46,6 +49,8 @@ export const EMPTY_FORM: BookingFormState = {
   endTime: "",
   price: "",
   currency: "",
+  fundingSourceId: "",
+  points: "",
   legId: "",
   placeId: "",
   address: "",
@@ -73,6 +78,10 @@ export function formToUpdateBody(form: BookingFormState): UpdateBookingBody {
     endAt: combineDateTime(form.endDate, form.endTime) ?? null,
     price: form.price ? Number(form.price) : null,
     currency: form.currency.trim() || null,
+    fundingSourceId: form.fundingSourceId ? Number(form.fundingSourceId) : null,
+    // Points are entered with separators ("58,000") — strip them rather than
+    // letting Number() turn the whole thing into NaN.
+    points: form.points.trim() ? Number(form.points.replace(/[^0-9]/g, "")) : null,
     legId: form.legId ? Number(form.legId) : null,
     // A hotel's own address replaces a library-place link (the two are
     // mutually exclusive there); every other type can carry both — a linked
@@ -111,6 +120,8 @@ export function bookingToForm(booking: Booking): BookingFormState {
     endTime: endTime === "00:00" ? "" : endTime,
     price: booking.price != null ? String(booking.price) : "",
     currency: booking.currency ?? "",
+    fundingSourceId: booking.fundingSourceId != null ? String(booking.fundingSourceId) : "",
+    points: booking.points != null ? String(booking.points) : "",
     legId: booking.legId != null ? String(booking.legId) : "",
     placeId: booking.placeId != null ? String(booking.placeId) : "",
     address: booking.address ?? "",
@@ -240,6 +251,31 @@ function LocationSearch({ form, onChange }: { form: BookingFormState; onChange: 
   );
 }
 
+/** The funding-source picker, shared by the booking form and the expense form.
+ * Sources are managed in settings; an empty value means unassigned, which is
+ * always a legitimate answer (and the default). */
+export function FundingSourceSelect({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const { data: sources } = useQuery(travelApi.queries.fundingSourcesQuery());
+  return (
+    <select className={className} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">No funding source</option>
+      {(sources ?? []).map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function BookingFields({
   form,
   onChange,
@@ -344,6 +380,21 @@ export function BookingFields({
           value={form.currency}
           onChange={(e) => onChange({ ...form, currency: e.target.value.toUpperCase() })}
           maxLength={3}
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <FundingSourceSelect
+          className="flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
+          value={form.fundingSourceId}
+          onChange={(fundingSourceId) => onChange({ ...form, fundingSourceId })}
+        />
+        <input
+          className="flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
+          placeholder="Points / miles (optional)"
+          inputMode="numeric"
+          value={form.points}
+          onChange={(e) => onChange({ ...form, points: e.target.value })}
         />
       </div>
 
