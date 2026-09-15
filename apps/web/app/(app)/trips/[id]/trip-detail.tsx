@@ -567,37 +567,36 @@ export function TripDetail({ tripId }: { tripId: number }) {
       )}
 
       {/* Trip readiness — computeReadiness already returns nothing for a past
-          trip, and hides whatever's been dismissed. */}
-      {(readiness.groups.length > 0 || readiness.dismissed.length > 0) && (
+          trip, and hides whatever's been dismissed. With nothing outstanding the
+          whole box goes away rather than sitting there saying so; the dismissed
+          footer (the only way to restore) rides along, so it's reachable again
+          as soon as any nudge is. */}
+      {readiness.groups.length > 0 && (
         <section className="rounded border border-gridline bg-surface p-4">
           <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Trip readiness</h2>
-          {readiness.groups.length === 0 ? (
-            <p className="text-sm text-text-secondary">Nothing outstanding.</p>
-          ) : (
-            <ul className="space-y-1">
-              {readiness.groups.map((g) => (
-                <li key={g.rule} className="group flex items-center gap-2">
-                  <span
-                    className={`text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary"}`}
-                  >
-                    {g.text}
+          <ul className="space-y-1">
+            {readiness.groups.map((g) => (
+              <li key={g.rule} className="group flex items-center gap-2">
+                <span
+                  className={`text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary"}`}
+                >
+                  {g.text}
+                </span>
+                {/* Dismisses every subject in the line as it stands now — a
+                    city added later is a new key, so it still warns. */}
+                <button
+                  onClick={() => dismiss.mutate(g.nudges.map((n) => n.key))}
+                  title={`Dismiss: ${g.nudges.map((n) => n.subjectLabel).join(", ")}`}
+                  aria-label={`Dismiss ${g.text}`}
+                  className="text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100"
+                >
+                  <span className="material-symbols-outlined text-base" aria-hidden="true">
+                    close
                   </span>
-                  {/* Dismisses every subject in the line as it stands now — a
-                      city added later is a new key, so it still warns. */}
-                  <button
-                    onClick={() => dismiss.mutate(g.nudges.map((n) => n.key))}
-                    title={`Dismiss: ${g.nudges.map((n) => n.subjectLabel).join(", ")}`}
-                    aria-label={`Dismiss ${g.text}`}
-                    className="text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100"
-                  >
-                    <span className="material-symbols-outlined text-base" aria-hidden="true">
-                      close
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                </button>
+              </li>
+            ))}
+          </ul>
           {/* Without this, dismissing is a one-way trapdoor — nothing else in
               the UI ever mentions a hidden nudge again. */}
           {readiness.dismissed.length > 0 && (

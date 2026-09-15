@@ -206,7 +206,7 @@ function formatTime12h(t: string): string {
 /** Which group an entry belongs to: an explicit leg wins; otherwise a real date
  * either matches a leg's own range (auto-placed there), falls before the
  * earliest leg (Pre-Trip), after the latest (Post-Trip), or — with no leg and
- * no date at all — Unscheduled. Mirrors web's grouping (trip-itinerary.tsx). */
+ * no date at all — Other. Mirrors web's grouping (trip-itinerary.tsx). */
 function groupFor(entry: Entry, legs: Leg[], earliestStart: string | null, latestEnd: string | null): string {
   if (entry.legId != null) return `leg-${entry.legId}`;
   if (entry.scheduledDate) {
@@ -816,7 +816,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     { key: "pre", label: "Pre-Trip", entries: entriesByGroup.get("pre") ?? [] },
     ...sortedLegs.map((leg) => ({ key: `leg-${leg.id}`, label: leg.city, entries: entriesByGroup.get(`leg-${leg.id}`) ?? [] })),
     { key: "post", label: "Post-Trip", entries: entriesByGroup.get("post") ?? [] },
-    { key: "unscheduled", label: "Unscheduled", entries: entriesByGroup.get("unscheduled") ?? [] },
+    { key: "unscheduled", label: "Other", entries: entriesByGroup.get("unscheduled") ?? [] },
   ].filter((g) => g.entries.length > 0 || g.key.startsWith("leg-"));
 
   /** Everything with no date on it — what the calendar's day sheet offers to

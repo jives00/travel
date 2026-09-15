@@ -168,32 +168,31 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
       </View>
 
       <View className="p-4">
-        {(readiness.groups.length > 0 || readiness.dismissed.length > 0) && (
+        {/* Nothing outstanding → no box, rather than a card that says so. The
+            dismissed footer rides inside it, so restoring is reachable again as
+            soon as any nudge is. Mirrors web. */}
+        {readiness.groups.length > 0 && (
           <Card className="mb-4">
             <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Trip readiness</Text>
-            {readiness.groups.length === 0 ? (
-              <Text className="text-sm text-text-secondary dark:text-text-secondary-dark">Nothing outstanding.</Text>
-            ) : (
-              readiness.groups.map((g) => (
-                <View key={g.rule} className="flex-row items-center justify-between py-0.5">
-                  <Text
-                    className={`flex-1 text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary dark:text-text-secondary-dark"}`}
-                  >
-                    {g.text}
-                  </Text>
-                  {/* Dismisses the subjects behind the line as it stands now;
-                      a city added later is a new key and warns again. */}
-                  <Pressable
-                    onPress={() => dismissReadiness.mutate({ tripId, keys: g.nudges.map((n) => n.key) })}
-                    hitSlop={12}
-                    accessibilityLabel={`Dismiss ${g.text}`}
-                    className="pl-3"
-                  >
-                    <Text className="text-base text-text-muted dark:text-text-muted-dark">✕</Text>
-                  </Pressable>
-                </View>
-              ))
-            )}
+            {readiness.groups.map((g) => (
+              <View key={g.rule} className="flex-row items-center justify-between py-0.5">
+                <Text
+                  className={`flex-1 text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary dark:text-text-secondary-dark"}`}
+                >
+                  {g.text}
+                </Text>
+                {/* Dismisses the subjects behind the line as it stands now;
+                    a city added later is a new key and warns again. */}
+                <Pressable
+                  onPress={() => dismissReadiness.mutate({ tripId, keys: g.nudges.map((n) => n.key) })}
+                  hitSlop={12}
+                  accessibilityLabel={`Dismiss ${g.text}`}
+                  className="pl-3"
+                >
+                  <Text className="text-base text-text-muted dark:text-text-muted-dark">✕</Text>
+                </Pressable>
+              </View>
+            ))}
             {readiness.dismissed.length > 0 && (
               <View className="mt-2 border-t border-gridline pt-2 dark:border-gridline-dark">
                 <Pressable onPress={() => setShowDismissed((v) => !v)} hitSlop={8}>

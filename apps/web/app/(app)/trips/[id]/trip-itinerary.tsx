@@ -40,7 +40,7 @@ function CategoryDot({ entries }: { entries: Entry[] }) {
 }
 
 // The trip-scoped, flat itinerary view embedded on the trip page. Pre-Trip/
-// Post-Trip/Unscheduled groups are hidden entirely when empty.
+// Post-Trip/Other groups are hidden entirely when empty.
 export function TripItinerary({
   tripId,
   onHoverPlace,
@@ -49,7 +49,7 @@ export function TripItinerary({
   tripId: number;
   onHoverPlace?: (placeId: number | null) => void;
   // Fires with whichever leg's section is scrolled into view (null for
-  // Pre-Trip/Post-Trip/Unscheduled, or when nothing has scrolled into the
+  // Pre-Trip/Post-Trip/Other, or when nothing has scrolled into the
   // tracked band yet) — lets the map's city filter follow scroll position.
   onActiveLegChange?: (legId: number | null) => void;
 }) {
@@ -268,7 +268,7 @@ export function TripItinerary({
   const unscheduledEntries = visible(sortEntries(groups.get("unscheduled") ?? []));
 
   // Scroll-spy: tracks which section (a leg, or Pre-Trip/Post-Trip/
-  // Unscheduled) currently sits in a band near the top of the viewport, and
+  // Other) currently sits in a band near the top of the viewport, and
   // reports it up so the sticky map's city filter can follow scroll position.
   const legIdsKey = sortedLegs.map((l) => l.id).join(",");
   useEffect(() => {
@@ -520,22 +520,6 @@ export function TripItinerary({
         );
       })}
 
-      <form onSubmit={addCity} className="flex gap-2">
-        <input
-          className="flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
-          placeholder="Add a city…"
-          value={newCity}
-          onChange={(e) => setNewCity(e.target.value)}
-        />
-        <button
-          type="submit"
-          disabled={addingCity}
-          className="rounded bg-category-transit px-4 py-2 font-medium text-white disabled:opacity-50"
-        >
-          Add city
-        </button>
-      </form>
-
       {postEntries.length > 0 && (
         <section ref={sectionRef("post")} className="rounded border border-gridline bg-surface p-4">
           <div className="flex items-start gap-1">
@@ -557,12 +541,28 @@ export function TripItinerary({
 
       {unscheduledEntries.length > 0 && (
         <section ref={sectionRef("unscheduled")} className="rounded border border-gridline bg-surface p-4">
-          <h3 className="mb-2 font-medium text-text-primary">Unscheduled</h3>
+          <h3 className="mb-2 font-medium text-text-primary">Other</h3>
           <ul className="space-y-1">
             {unscheduledEntries.map(renderEntry)}
           </ul>
         </section>
       )}
+
+      <form onSubmit={addCity} className="flex gap-2">
+        <input
+          className="flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
+          placeholder="Add a city…"
+          value={newCity}
+          onChange={(e) => setNewCity(e.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={addingCity}
+          className="rounded bg-category-transit px-4 py-2 font-medium text-white disabled:opacity-50"
+        >
+          Add city
+        </button>
+      </form>
 
       <button
         onClick={() => setAdding(true)}
