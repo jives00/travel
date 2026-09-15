@@ -94,12 +94,14 @@ interface ExportBookingRow {
 // Small knowing drift from the app: the bicycle here carries a rider and the
 // app's does not. Everything else is the same glyph.
 //
-// The app's `private` style has no counterpart here on purpose. Privacy in the
-// app is an over-the-shoulder concern — the trip map hides those pins, or draws
-// them as a featureless "?", because someone may be looking at the screen — but
-// this export is a file you import into your own My Maps, where a disguised pin
-// is just a map that is wrong for you. Private items are therefore exported
-// under their real name and real category, and no `private` style is emitted.
+// The app's `private` style is emitted too, and a private item wears it here
+// exactly as it does on the trip map: a dark-blue "?" instead of its category.
+// This reverses the earlier reading (todo #15) that privacy stops at the export
+// because the file lands in your own My Maps — true of *access*, but the pin is
+// an over-the-shoulder disguise, and an exported map that blows it on the one
+// screen most likely to be shared is the wrong half to optimise. The item still
+// exports under its real name and keeps its info card; only the pin is
+// disguised, which is the same trade the app makes.
 const CITY_STYLE_ID = "city";
 
 // The city anchor is not one of the app's pin styles — it marks the leg itself,
@@ -112,21 +114,18 @@ const STYLE_GLYPHS: Record<MapPinStyleKey, string | null> = {
   food_drinks: "1577-food-fork-knife",
   lodging: "1603-house",
   nightlife: "1517-bar-cocktail",
-  // Never emitted (see above). Present only to keep this record exhaustive, so
-  // that adding a style to MAP_PIN_STYLES still fails to compile until someone
-  // has decided what it draws here.
-  private: null,
+  // Google's taxonomy calls it "help"; it draws a plain "?", which is the app's
+  // private glyph. Verified by rendering it, per the rule above.
+  private: "1594-help",
   transit: "1522-bicycle",
 };
 
 const PLACE_STYLES: KmlStyle[] = [
   { id: CITY_STYLE_ID, iconUrl: myMapsIconUrl(CITY_COLOR, CITY_GLYPH) },
-  ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[])
-    .filter((key) => key !== "private")
-    .map((key) => ({
-      id: key,
-      iconUrl: myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
-    })),
+  ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[]).map((key) => ({
+    id: key,
+    iconUrl: myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
+  })),
 ];
 
 function escapeHtml(value: string): string {
@@ -182,7 +181,7 @@ function formatWebsite(website: string | null): string {
   return website.replace(/^https?:\/\//, "").replace(/\/$/, "");
 }
 
-function placeToPoint(row: ExportPlaceRow): KmlPoint {
+function placeToPoint(row: ExportPlaceRow, isPrivate = false): KmlPoint {
   return {
     name: row.name,
     lat: row.lat,
@@ -190,8 +189,9 @@ function placeToPoint(row: ExportPlaceRow): KmlPoint {
     // Via the app's own tag -> group -> style collapse, so a place and the same
     // place's booking land on one style. mapPinGroupForTag also absorbs a null
     // primaryTag, which previously fell through to the layer's first style and
-    // drew an untagged place as the city anchor.
-    styleId: mapPinStyleKeyFor(mapPinGroupForTag(row.primaryTag)),
+    // drew an untagged place as the city anchor. `isPrivate` overrides the
+    // category outright, exactly as it does in the app.
+    styleId: mapPinStyleKeyFor(mapPinGroupForTag(row.primaryTag), isPrivate),
     descriptionHtml: describe([
       // Your note leads: it is the reason the place was saved. `description` is
       // Google's own editorial summary (editorialSummary.text, see
@@ -253,14 +253,14 @@ function formatDateRange(startAt: Date | string | null, endAt: Date | string | n
   return `${sameYear ? start.replace(/, \d{4}/, "") : start} – ${end}`;
 }
 
-function bookingToPoint(row: ExportBookingRow): KmlPoint {
+function bookingToPoint(row: ExportBookingRow, isPrivate = false): KmlPoint {
   return {
     name: row.title,
     lat: row.lat,
     lng: row.lng,
     // Same styles the places use, via the app's own booking-type -> pin group
     // mapping, so a hotel pin matches the lodging color everywhere else.
-    styleId: mapPinStyleKeyFor(mapPinGroupForBookingType(row.type)),
+    styleId: mapPinStyleKeyFor(mapPinGroupForBookingType(row.type), isPrivate),
     // Confirmation codes are deliberately left out: a My Map is one "share"
     // click away from being public, and a booking reference is the one field
     // here that would actually matter if it leaked.
@@ -331,6 +331,31 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
     );
     const legByPlaceId = groupByLeg(scheduleRows as ScheduleRow[], legs);
 
+    // `is_private` lives on itinerary_items, not on places/bookings (migration
+    // 021) — privacy is a property of scheduling a thing on this trip, not of
+    // the library row, so the same place can be private here and ordinary in
+    // another trip. Read as two id sets, mirroring trip-map.tsx. An item never
+    // scheduled onto a day has no itinerary row and so is never private.
+    const [privateRows] = await getPool().query(
+      `SELECT item_type AS itemType, place_id AS placeId, booking_id AS bookingId
+       FROM itinerary_items
+       WHERE trip_id = ? AND is_private = 1`,
+      [tripId],
+    );
+    const privateItems = privateRows as {
+      itemType: string;
+      placeId: number | null;
+      bookingId: number | null;
+    }[];
+    const privatePlaceIds = new Set(
+      privateItems.filter((i) => i.itemType === "place" && i.placeId != null).map((i) => i.placeId),
+    );
+    const privateBookingIds = new Set(
+      privateItems
+        .filter((i) => i.itemType === "booking" && i.bookingId != null)
+        .map((i) => i.bookingId),
+    );
+
     // Every booking type is included, matching what trip-map.tsx plots — a
     // hotel, a dinner reservation and a train station are all locations you
     // want on the map. Completed bookings are kept (the in-app map hides them,
@@ -388,10 +413,14 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
       }
 
       for (const booking of bookings) {
-        if (legByBookingId.get(booking.id) === leg.id) points.push(bookingToPoint(booking));
+        if (legByBookingId.get(booking.id) === leg.id) {
+          points.push(bookingToPoint(booking, privateBookingIds.has(booking.id)));
+        }
       }
       for (const place of places) {
-        if (legByPlaceId.get(place.id) === leg.id) points.push(placeToPoint(place));
+        if (legByPlaceId.get(place.id) === leg.id) {
+          points.push(placeToPoint(place, privatePlaceIds.has(place.id)));
+        }
       }
 
       if (points.length === 0) continue;
@@ -405,8 +434,12 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
     // leg nor a date, resolve to no city. Deliberately not assigned to the
     // nearest one — a guess would silently put pins in the wrong layer.
     const unscheduled: KmlPoint[] = [
-      ...bookings.filter((b) => !legByBookingId.has(b.id)).map(bookingToPoint),
-      ...places.filter((p) => !legByPlaceId.has(p.id)).map(placeToPoint),
+      ...bookings
+        .filter((b) => !legByBookingId.has(b.id))
+        .map((b) => bookingToPoint(b, privateBookingIds.has(b.id))),
+      ...places
+        .filter((p) => !legByPlaceId.has(p.id))
+        .map((p) => placeToPoint(p, privatePlaceIds.has(p.id))),
     ];
     if (unscheduled.length > 0) {
       const layerName = "Unscheduled";

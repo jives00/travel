@@ -61,11 +61,22 @@ const DARK_GREEN = "#097138";
 const GREEN = "#56fb7a";
 const DARK_BLUE = "#1e3a8a";
 
-/** The pin's outline and its punched-out center, both sampled off Google's own
- * green marker. Near-black on a bright fill, so the pin still reads as a pin
- * against pale beige, park green and satellite imagery alike. */
-const PIN_STROKE = "#1d2b21";
-const PIN_HOLE = "#000000";
+/** The pin's outline and its punched-out center. Both are **white**, because
+ * that is what Google's own marker actually draws — the earlier near-black pair
+ * here was a mis-sampling, and it was the whole of the mismatch against the My
+ * Maps export: `myMapsIconUrl()` renders the body in this file's exact hex, but
+ * the ring and the hole are baked into Google's artwork and take no color
+ * parameter (the `-bg` layer is the drop shadow, and re-highlighting it changes
+ * nothing). A black hole therefore read as a visibly darker, heavier pin in the
+ * app than the same place did after an import. The export cannot move, so this
+ * did.
+ *
+ * Legibility against pale beige and park green — the reason the dark pair was
+ * introduced — is carried by the fill's own saturation plus the shadow Google
+ * draws behind its marker, which is how the stock pin survives the same
+ * backgrounds. */
+const PIN_STROKE = "#ffffff";
+const PIN_HOLE = "#ffffff";
 
 export const MAP_PIN_STYLES: Record<MapPinStyleKey, MapPinStyle> = {
   // Anything we're going to that isn't food, a bed, or a way of getting there —
