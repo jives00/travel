@@ -83,8 +83,10 @@ export function TripMap({ tripId }: { tripId: number }) {
     [items],
   );
 
-  // A place checked off done/visited drops off the map, same as the
-  // itinerary list dropping it to the bottom.
+  // A place checked off done/visited *stays* on the map and goes grey (see
+  // MAP_PIN_COMPLETED_COLOR) rather than disappearing, which is what it used to
+  // do: half the value of the map after a trip is seeing where you actually
+  // went. Only the color changes — same pin, same glyph.
   const completedPlaceIds = useMemo(
     () =>
       new Set(
@@ -98,26 +100,19 @@ export function TripMap({ tripId }: { tripId: number }) {
   const visiblePlaces = useMemo(
     () =>
       (places ?? []).filter(
-        (p) =>
-          p.lat != null &&
-          p.lng != null &&
-          !completedPlaceIds.has(p.id) &&
-          (showPrivate || !privatePlaceIds.has(p.id)),
+        (p) => p.lat != null && p.lng != null && (showPrivate || !privatePlaceIds.has(p.id)),
       ),
-    [places, completedPlaceIds, showPrivate, privatePlaceIds],
+    [places, showPrivate, privatePlaceIds],
   );
 
   // Any booking can carry its own address/lat/lng directly — plotted
   // independently of `places`, same as web's trip-map.tsx. A booking checked
-  // off done drops off the map, same as a completed place.
+  // off done greys out, same as a completed place.
   const visibleBookings = useMemo(
     () =>
       (bookings ?? []).filter(
         (b): b is typeof b & { lat: number; lng: number } =>
-          b.lat != null &&
-          b.lng != null &&
-          !b.completed &&
-          (showPrivate || !privateBookingIds.has(b.id)),
+          b.lat != null && b.lng != null && (showPrivate || !privateBookingIds.has(b.id)),
       ),
     [bookings, showPrivate, privateBookingIds],
   );
@@ -180,11 +175,17 @@ export function TripMap({ tripId }: { tripId: number }) {
 
   // Re-arm tracking whenever the visible pins change (filters, data arriving),
   // then switch it off once Android has had a pass to snapshot them.
+  //
+  // `completedPlaceIds` is in here for its own reason: checking a place off
+  // recolors a pin without changing the pin *set*, and it comes from `items`
+  // rather than `places`, so neither list above changes identity — without this
+  // dep Android keeps drawing the cached colored bitmap until some other change
+  // happens to re-arm tracking.
   useEffect(() => {
     setTracksViewChanges(true);
     const timer = setTimeout(() => setTracksViewChanges(false), 600);
     return () => clearTimeout(timer);
-  }, [filteredPins, filteredBookingPins]);
+  }, [filteredPins, filteredBookingPins, completedPlaceIds]);
 
   function resetView() {
     setCityFilter("all");
@@ -214,7 +215,7 @@ export function TripMap({ tripId }: { tripId: number }) {
         >
           {filteredPins.map((p) => {
             const group = mapPinGroupForTag(p.primaryTag) as MapPinGroup;
-            const style = mapPinStyleFor(group, privatePlaceIds.has(p.id));
+            const style = mapPinStyleFor(group, privatePlaceIds.has(p.id), completedPlaceIds.has(p.id));
             return (
               <Marker
                 key={`place-${p.id}`}
@@ -230,7 +231,7 @@ export function TripMap({ tripId }: { tripId: number }) {
           })}
           {filteredBookingPins.map((b) => {
             const group = mapPinGroupForBookingType(b.type) as MapPinGroup;
-            const style = mapPinStyleFor(group, privateBookingIds.has(b.id));
+            const style = mapPinStyleFor(group, privateBookingIds.has(b.id), b.completed);
             return (
               <Marker
                 key={`booking-${b.id}`}

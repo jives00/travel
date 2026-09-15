@@ -10,7 +10,7 @@ import {
   type KmlPoint,
   type KmlStyle,
 } from "@travel/core";
-import { MAP_PIN_STYLES, mapPinStyleKeyFor, type MapPinStyleKey } from "@travel/ui-tokens";
+import { MAP_PIN_COMPLETED_COLOR, MAP_PIN_STYLES, mapPinStyleKeyFor, type MapPinStyleKey } from "@travel/ui-tokens";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { geocodeCity } from "../services/weather.client";
@@ -69,6 +69,8 @@ interface ExportBookingRow {
   lat: number;
   lng: number;
   notes: string | null;
+  // 0/1 out of MySQL, like every other boolean column here.
+  completed: number;
 }
 
 // Layers are grouped by city, so every layer carries the full per-category set
@@ -138,15 +140,36 @@ const STYLE_GLYPHS: Record<MapPinStyleKey, string | null> = {
   transit: "1522-bicycle",
 };
 
+/** A checked-off pin's style id. The app greys the pin in place (see
+ * MAP_PIN_COMPLETED_COLOR) and the export follows, so an imported map reads the
+ * same way: grey is done, color is still to do. */
+function completedStyleId(key: MapPinStyleKey): string {
+  return `${key}-done`;
+}
+
+function styleIdFor(key: MapPinStyleKey, completed: boolean): string {
+  return completed ? completedStyleId(key) : key;
+}
+
+/** The completed default pin is the one place the export can't reuse
+ * DEFAULT_PIN_ICON: Google's legacy `mapfiles/ms/icons` set has no grey marker
+ * (grey-dot.png 404s), so it falls back to the icon service's own glyphless
+ * teardrop, which takes any hex. That shape carries a white ring and hole
+ * rather than the legacy marker's dark ones — a visible difference from the
+ * live default pin, and the right trade here: the colour is the signal being
+ * sent, and there is no grey legacy marker to send it with. */
 const PLACE_STYLES: KmlStyle[] = [
   { id: CITY_STYLE_ID, iconUrl: myMapsIconUrl(CITY_COLOR, CITY_GLYPH) },
-  ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[]).map((key) => ({
-    id: key,
-    iconUrl:
-      key === "default"
-        ? DEFAULT_PIN_ICON
-        : myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
-  })),
+  ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[]).flatMap((key) => [
+    {
+      id: key,
+      iconUrl:
+        key === "default"
+          ? DEFAULT_PIN_ICON
+          : myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
+    },
+    { id: completedStyleId(key), iconUrl: myMapsIconUrl(MAP_PIN_COMPLETED_COLOR, STYLE_GLYPHS[key]) },
+  ]),
 ];
 
 function escapeHtml(value: string): string {
@@ -155,7 +178,9 @@ function escapeHtml(value: string): string {
 
 /** The info card body. Sections are separated by a blank line rather than a
  * single break: this block is the only prose on the card, and My Maps renders
- * it as one unbroken run otherwise.
+ * it as one unbroken run otherwise. The block also ends with a break, because
+ * My Maps butts its first ExtendedData row (Address) straight up against the
+ * last line otherwise, so the maps link and the address read as one run.
  *
  * Only the things *you* wrote go here. Address, dates, rating and website are
  * facts, and facts belong in ExtendedData where My Maps gives them their own
@@ -163,27 +188,47 @@ function escapeHtml(value: string): string {
  * value on the card twice. */
 function describe(sections: (string | null)[]): string | null {
   const kept = sections.filter((line): line is string => line != null && line !== "");
-  return kept.length > 0 ? kept.join("<br><br>") : null;
+  return kept.length > 0 ? `${kept.join("<br><br>")}<br>` : null;
 }
 
-/** A short link to the real Google listing, which carries the hours, photos and
+/** Google's editorial summaries are sentence fragments and arrive uncapitalized
+ * about as often as not ("casual spot for wood-fired pizza"). With the "About:"
+ * label gone the summary starts the line, so a lowercase first letter reads as
+ * a typo. Only the first character is touched — the rest is Google's prose. */
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Spaces and commas are left legible rather than percent-encoded — `+` is a
+ * valid space in a query string, and %20/%2C everywhere turns a readable name
+ * into an unreadable URL. This link is rendered as bare text (see mapsLink), so
+ * how it reads matters as much as where it goes. */
+function readableQuery(text: string): string {
+  return encodeURIComponent(text).replace(/%20/g, "+").replace(/%2C/g, ",");
+}
+
+/** A link to the real Google listing, which carries the hours, photos and
  * reviews no import format can bring across.
  *
- * Deliberately terse, and deliberately *not* an `<a>`: My Maps flattens anchors
- * on import and renders the href itself, so the old
- * `maps/search/?api=1&query=<lat>,<lng>&query_place_id=<id>` form — 130-odd
- * characters behind the words "Open in Google Maps" — arrived as a wall of URL.
- * This form is a third of the length and resolves to the same listing. The
- * protocol stays on so My Maps still autolinks it. */
+ * Deliberately *not* an `<a>`: My Maps flattens anchors on import and renders
+ * the href itself, so the link is read as text and kept as short as it can be.
+ * The protocol stays on so My Maps still autolinks it.
+ *
+ * **Both forms must be the documented `?api=1` ones.** The shorter legacy
+ * `maps.google.com/?q=place_id:<id>` resolves on the desktop web but is not
+ * understood by the Google Maps *app*, which is what an Android/iOS tap on a My
+ * Maps card hands the URL to — it reported "can't find" for every place pin
+ * while the same card worked in a browser. `api=1` is the one form both honor,
+ * and the extra characters are the price of it. */
 function mapsLink(googlePlaceId: string | null, name: string, address: string | null): string {
-  if (googlePlaceId) return `https://maps.google.com/?q=place_id:${encodeURIComponent(googlePlaceId)}`;
+  // The place id is what resolves to the exact listing; the query beside it is
+  // the fallback text the app searches if the id ever goes stale.
+  if (googlePlaceId) {
+    return `https://www.google.com/maps/search/?api=1&query=${readableQuery(name)}&query_place_id=${encodeURIComponent(googlePlaceId)}`;
+  }
   // Bookings are not drawn from the place library, so most have no place id.
-  // Spaces and commas are left legible rather than percent-encoded — `+` is a
-  // valid space in a query string, and %20/%2C everywhere turned a readable
-  // address into the same unreadable URL this function exists to shorten.
   const query = [name, address].filter((part): part is string => !!part).join(", ");
-  const encoded = encodeURIComponent(query).replace(/%20/g, "+").replace(/%2C/g, ",");
-  return `https://maps.google.com/?q=${encoded}`;
+  return `https://www.google.com/maps/search/?api=1&query=${readableQuery(query)}`;
 }
 
 /** "4.5 ★ (2,341 reviews)" — the bare "Rating: 4.5" this replaces never said
@@ -202,7 +247,7 @@ function formatWebsite(website: string | null): string {
   return website.replace(/^https?:\/\//, "").replace(/\/$/, "");
 }
 
-function placeToPoint(row: ExportPlaceRow, isPrivate = false): KmlPoint {
+function placeToPoint(row: ExportPlaceRow, isPrivate = false, completed = false): KmlPoint {
   return {
     name: row.name,
     lat: row.lat,
@@ -212,13 +257,14 @@ function placeToPoint(row: ExportPlaceRow, isPrivate = false): KmlPoint {
     // primaryTag, which previously fell through to the layer's first style and
     // drew an untagged place as the city anchor. `isPrivate` overrides the
     // category outright, exactly as it does in the app.
-    styleId: mapPinStyleKeyFor(mapPinGroupForTag(row.primaryTag), isPrivate),
+    styleId: styleIdFor(mapPinStyleKeyFor(mapPinGroupForTag(row.primaryTag), isPrivate), completed),
     descriptionHtml: describe([
       // Your note leads: it is the reason the place was saved. `description` is
       // Google's own editorial summary (editorialSummary.text, see
-      // google-places.client.ts), so it is labelled and follows.
+      // google-places.client.ts) and follows it unlabelled — an "About:" in
+      // front of one line of obvious prose was only noise.
       row.note ? `<b>Note:</b> ${escapeHtml(row.note)}` : null,
-      row.description ? `<b>About:</b> ${escapeHtml(row.description)}` : null,
+      row.description ? escapeHtml(sentenceCase(row.description)) : null,
       escapeHtml(mapsLink(row.googlePlaceId, row.name, row.address)),
     ]),
     // No Category or Status row: the pin's colour and glyph already say the
@@ -274,14 +320,14 @@ function formatDateRange(startAt: Date | string | null, endAt: Date | string | n
   return `${sameYear ? start.replace(/, \d{4}/, "") : start} – ${end}`;
 }
 
-function bookingToPoint(row: ExportBookingRow, isPrivate = false): KmlPoint {
+function bookingToPoint(row: ExportBookingRow, isPrivate = false, completed = false): KmlPoint {
   return {
     name: row.title,
     lat: row.lat,
     lng: row.lng,
     // Same styles the places use, via the app's own booking-type -> pin group
     // mapping, so a hotel pin matches the lodging color everywhere else.
-    styleId: mapPinStyleKeyFor(mapPinGroupForBookingType(row.type), isPrivate),
+    styleId: styleIdFor(mapPinStyleKeyFor(mapPinGroupForBookingType(row.type), isPrivate), completed),
     // Confirmation codes are deliberately left out: a My Map is one "share"
     // click away from being public, and a booking reference is the one field
     // here that would actually matter if it leaked.
@@ -357,38 +403,52 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
     // the library row, so the same place can be private here and ordinary in
     // another trip. Read as two id sets, mirroring trip-map.tsx. An item never
     // scheduled onto a day has no itinerary row and so is never private.
-    const [privateRows] = await getPool().query(
-      `SELECT item_type AS itemType, place_id AS placeId, booking_id AS bookingId
+    // `completed` rides along in the same read: it is the other per-trip flag
+    // that changes how a pin is drawn (grey instead of its category colour),
+    // and it lives on the same row for the same reason — visiting a place is a
+    // fact about this trip, not about the library entry.
+    const [flagRows] = await getPool().query(
+      `SELECT item_type AS itemType, place_id AS placeId, booking_id AS bookingId,
+              is_private AS isPrivate, completed
        FROM itinerary_items
-       WHERE trip_id = ? AND is_private = 1`,
+       WHERE trip_id = ? AND (is_private = 1 OR completed = 1)`,
       [tripId],
     );
-    const privateItems = privateRows as {
+    const flaggedItems = flagRows as {
       itemType: string;
       placeId: number | null;
       bookingId: number | null;
+      isPrivate: number;
+      completed: number;
     }[];
     const privatePlaceIds = new Set(
-      privateItems.filter((i) => i.itemType === "place" && i.placeId != null).map((i) => i.placeId),
+      flaggedItems
+        .filter((i) => i.isPrivate && i.itemType === "place" && i.placeId != null)
+        .map((i) => i.placeId),
     );
     const privateBookingIds = new Set(
-      privateItems
-        .filter((i) => i.itemType === "booking" && i.bookingId != null)
+      flaggedItems
+        .filter((i) => i.isPrivate && i.itemType === "booking" && i.bookingId != null)
         .map((i) => i.bookingId),
+    );
+    const completedPlaceIds = new Set(
+      flaggedItems
+        .filter((i) => i.completed && i.itemType === "place" && i.placeId != null)
+        .map((i) => i.placeId),
     );
 
     // Every booking type is included, matching what trip-map.tsx plots — a
     // hotel, a dinner reservation and a train station are all locations you
-    // want on the map. Completed bookings are kept (the in-app map hides them,
-    // but an export is a snapshot of the whole trip, and silently dropping a
-    // past trip's hotels would be worse).
+    // want on the map. Completed bookings are kept and greyed, exactly as the
+    // in-app map now draws them — a booking's own `completed` column is the
+    // flag (unlike a place, which carries it on its itinerary row).
     const [bookingRows] = await getPool().query(
       `SELECT b.id, p.google_place_id AS googlePlaceId, b.type, b.title, b.leg_id AS legId,
               b.start_at AS startAt, b.end_at AS endAt,
               COALESCE(b.address, p.address) AS address,
               COALESCE(b.lat, p.lat) AS lat,
               COALESCE(b.lng, p.lng) AS lng,
-              b.notes
+              b.notes, b.completed
        FROM bookings b
        LEFT JOIN places p ON p.id = b.place_id
        WHERE b.trip_id = ? AND COALESCE(b.lat, p.lat) IS NOT NULL AND COALESCE(b.lng, p.lng) IS NOT NULL
@@ -435,12 +495,16 @@ export async function exportRoutes(app: FastifyInstance): Promise<void> {
 
       for (const booking of bookings) {
         if (legByBookingId.get(booking.id) === leg.id) {
-          points.push(bookingToPoint(booking, privateBookingIds.has(booking.id)));
+          points.push(
+            bookingToPoint(booking, privateBookingIds.has(booking.id), Boolean(booking.completed)),
+          );
         }
       }
       for (const place of places) {
         if (legByPlaceId.get(place.id) === leg.id) {
-          points.push(placeToPoint(place, privatePlaceIds.has(place.id)));
+          points.push(
+            placeToPoint(place, privatePlaceIds.has(place.id), completedPlaceIds.has(place.id)),
+          );
         }
       }
 

@@ -97,8 +97,10 @@ export function TripMap({
       ),
     [items],
   );
-  // A place checked off done/visited drops off the map entirely, same as the
-  // itinerary list dropping it to the bottom.
+  // A place checked off done/visited *stays* on the map and goes grey (see
+  // MAP_PIN_COMPLETED_COLOR) rather than disappearing, which is what it used to
+  // do: half the value of the map after a trip is seeing where you actually
+  // went. Only the color changes — same pin, same glyph.
   const completedPlaceIds = useMemo(
     () =>
       new Set(
@@ -109,8 +111,8 @@ export function TripMap({
     [items],
   );
   const visiblePlaces = useMemo(
-    () => (places ?? []).filter((p) => (showPrivate || !privatePlaceIds.has(p.id)) && !completedPlaceIds.has(p.id)),
-    [places, showPrivate, privatePlaceIds, completedPlaceIds],
+    () => (places ?? []).filter((p) => showPrivate || !privatePlaceIds.has(p.id)),
+    [places, showPrivate, privatePlaceIds],
   );
 
   // Which leg(s) each place is scheduled onto, from the itinerary — a place
@@ -168,12 +170,12 @@ export function TripMap({
   // Any booking can carry its own address/lat/lng directly (see
   // booking-fields.tsx's LocationSearch) — no library Place link required, so
   // they're plotted independently of `places`, not looked up through one. A
-  // booking checked off done drops off the map, same as a completed place.
+  // booking checked off done greys out, same as a completed place.
   const bookingMarkers = useMemo(
     () =>
       (bookings ?? []).filter(
         (b): b is typeof b & { lat: number; lng: number } =>
-          b.lat != null && b.lng != null && !b.completed && (showPrivate || !privateBookingIds.has(b.id)),
+          b.lat != null && b.lng != null && (showPrivate || !privateBookingIds.has(b.id)),
       ),
     [bookings, showPrivate, privateBookingIds],
   );
@@ -235,8 +237,8 @@ export function TripMap({
 
     const bounds = new google.maps.LatLngBounds();
 
-    function pinIcon(group: MapPinGroup, isPrivate = false) {
-      const art = mapPinSvg(mapPinStyleFor(group, isPrivate));
+    function pinIcon(group: MapPinGroup, isPrivate = false, completed = false) {
+      const art = mapPinSvg(mapPinStyleFor(group, isPrivate, completed));
       return {
         url: pinIconUrl(art.svg),
         scaledSize: new google.maps.Size(art.width, art.height),
@@ -251,7 +253,11 @@ export function TripMap({
         position,
         map,
         title: place.name,
-        icon: pinIcon(mapPinGroupForTag(place.primaryTag) as MapPinGroup, privatePlaceIds.has(place.id)),
+        icon: pinIcon(
+          mapPinGroupForTag(place.primaryTag) as MapPinGroup,
+          privatePlaceIds.has(place.id),
+          completedPlaceIds.has(place.id),
+        ),
       });
       marker.addListener("click", () => {
         infoWindow.setContent(
@@ -271,7 +277,11 @@ export function TripMap({
         position,
         map,
         title: booking.title,
-        icon: pinIcon(mapPinGroupForBookingType(booking.type) as MapPinGroup, privateBookingIds.has(booking.id)),
+        icon: pinIcon(
+          mapPinGroupForBookingType(booking.type) as MapPinGroup,
+          privateBookingIds.has(booking.id),
+          booking.completed,
+        ),
       });
       marker.addListener("click", () => {
         infoWindow.setContent(infoWindowHtml({ name: booking.title, address: booking.address, lat: booking.lat, lng: booking.lng }));
@@ -283,7 +293,7 @@ export function TripMap({
     }
 
     if (plotted > 0) map.fitBounds(bounds);
-  }, [scriptLoaded, filteredPlaces, filteredBookingMarkers, privatePlaceIds, privateBookingIds]);
+  }, [scriptLoaded, filteredPlaces, filteredBookingMarkers, privatePlaceIds, privateBookingIds, completedPlaceIds]);
 
   // Bounce the marker for whichever place is currently hovered in the
   // itinerary list, so the two views visibly link up.

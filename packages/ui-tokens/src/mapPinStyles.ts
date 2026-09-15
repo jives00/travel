@@ -113,8 +113,26 @@ export function mapPinStyleKeyFor(group: MapPinGroup | string, isPrivate = false
   }
 }
 
-export function mapPinStyleFor(group: MapPinGroup | string, isPrivate = false): MapPinStyle {
-  return MAP_PIN_STYLES[mapPinStyleKeyFor(group, isPrivate)];
+/** A checked-off place or booking keeps its pin — same shape, same glyph — and
+ * only loses its color. Grey is the whole signal: what is left in color is what
+ * is left to do, while the trip's history stays on the map instead of vanishing
+ * from it (which is what checking something off used to do).
+ *
+ * Deliberately a mid grey rather than a pale one: it has to stay visible on
+ * Google's pale beige and on satellite imagery, and a completed pin is still a
+ * place you want to be able to find. */
+export const MAP_PIN_COMPLETED_COLOR = "#a6a6a6";
+
+/** Greys a style in place. Applied *after* the private override, so a completed
+ * private item is a grey "?" — it neither reveals its category nor pretends it
+ * is still pending. */
+export function completedPinStyle(style: MapPinStyle): MapPinStyle {
+  return { ...style, color: MAP_PIN_COMPLETED_COLOR };
+}
+
+export function mapPinStyleFor(group: MapPinGroup | string, isPrivate = false, completed = false): MapPinStyle {
+  const style = MAP_PIN_STYLES[mapPinStyleKeyFor(group, isPrivate)];
+  return completed ? completedPinStyle(style) : style;
 }
 
 /** White glyph artwork, drawn on a 24x24 grid and scaled down to sit inside the
