@@ -65,7 +65,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # `packages: ""` is load-bearing: the action's default is
+      # `tools platform-tools`, and the obsolete `tools` package was removed
+      # from Google's SDK repository, so sdkmanager now exits 1 with "Failed to
+      # find package 'tools'" and fails the job before anything is built. The
+      # runner image already ships platform-tools, and Gradle fetches the
+      # platform/build-tools it needs itself — this step is only here to set
+      # ANDROID_HOME and accept the licenses.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
