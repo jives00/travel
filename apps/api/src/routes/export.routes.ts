@@ -109,8 +109,26 @@ const CITY_STYLE_ID = "city";
 const CITY_COLOR = "#1a73e8";
 const CITY_GLYPH = "1574-flag";
 
+/** The one pin that does *not* come from myMapsIconUrl.
+ *
+ * That service can set the body to any hex, but the marker's ring and its
+ * punched-out centre are baked white into Google's artwork and take no
+ * parameter — the `-bg` layer is only the drop shadow (re-highlighting it
+ * changes nothing), and stacking an extra layer just enlarges the hole, because
+ * a glyph layer is knocked *out* of the body rather than drawn onto it. The
+ * app's default pin has a near-black outline and a black hole, so the exact-hex
+ * version arrived looking like a different, paler pin.
+ *
+ * This is Google's own legacy marker, which has the dark outline and dark
+ * centre the app draws. The trade is that its green is fixed at #00e13c and
+ * cannot be set to the app's #56fb7a — structure was the half worth keeping,
+ * since the hole is what the eye reads first at map size.
+ *
+ * Fixed-colour, so it is a bare image href rather than an icon-service URL. */
+const DEFAULT_PIN_ICON = "https://maps.google.com/mapfiles/ms/icons/green-dot.png";
+
 const STYLE_GLYPHS: Record<MapPinStyleKey, string | null> = {
-  default: null, // a plain pin, matching the app's glyphless default
+  default: null, // drawn by DEFAULT_PIN_ICON, not the icon service
   food_drinks: "1577-food-fork-knife",
   lodging: "1603-house",
   nightlife: "1517-bar-cocktail",
@@ -124,7 +142,10 @@ const PLACE_STYLES: KmlStyle[] = [
   { id: CITY_STYLE_ID, iconUrl: myMapsIconUrl(CITY_COLOR, CITY_GLYPH) },
   ...(Object.keys(STYLE_GLYPHS) as MapPinStyleKey[]).map((key) => ({
     id: key,
-    iconUrl: myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
+    iconUrl:
+      key === "default"
+        ? DEFAULT_PIN_ICON
+        : myMapsIconUrl(MAP_PIN_STYLES[key].color, STYLE_GLYPHS[key]),
   })),
 ];
 
