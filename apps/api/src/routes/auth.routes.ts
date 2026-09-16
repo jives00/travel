@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { LoginBody, type RefreshBody } from "@travel/types";
 import { isTrustedRequest } from "../middleware/auth";
@@ -35,7 +35,29 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     "/login",
-    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    {
+      config: {
+        rateLimit: {
+          // Trusted LAN/Tailscale clients are exempt outright. Throttling the
+          // password path for them protects nothing: `/session` above hands that
+          // same account a full session from those exact networks with no
+          // password and no limiter at all, so an attacker who is already inside
+          // the trust boundary never touches this route. All the limit could
+          // actually do was lock the one real user out of the one endpoint that
+          // asks for proof — which is what it did, twice, and because the client
+          // reported every failure as "invalid username or password", a retry
+          // after a network blip burned budget until the blip became a 429 that
+          // still read as a typo.
+          allowList: (request: FastifyRequest) => isTrustedRequest(request),
+          // Untrusted callers: still throttled, just not hair-triggered. Reaching
+          // here from outside Tailscale means the API was exposed in a way it
+          // currently is not, so this is defense in depth rather than the thing
+          // standing between the app and the internet.
+          max: 20,
+          timeWindow: "5 minutes",
+        },
+      },
+    },
     async (request, reply) => {
       const parsed = LoginBody.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: "invalid body" });

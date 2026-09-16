@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { describeLoginError } from "@travel/api-client";
 import { travelApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
@@ -8,6 +9,7 @@ export default function LoginPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,8 +45,10 @@ export default function LoginPage() {
       // window.location.href bypasses Next's basePath-aware routing entirely
       // (unlike <Link>/router.push, which prepend it automatically).
       window.location.href = "/travel";
-    } catch {
-      setError("Invalid username or password");
+    } catch (err) {
+      // Never blame the password for a failure that never reached the password
+      // check — describeLoginError separates unreachable/429/5xx from a real 401.
+      setError(describeLoginError(err).message);
       setSubmitting(false);
     }
   }
@@ -59,13 +63,25 @@ export default function LoginPage() {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
-        <input
-          className="w-full rounded border border-gridline bg-transparent p-2 text-text-primary"
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="relative">
+          <input
+            className="w-full rounded border border-gridline bg-transparent p-2 pr-10 text-text-primary"
+            placeholder="Password"
+            type={showPassword ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-pressed={showPassword}
+            title={showPassword ? "Hide password" : "Show password"}
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-text-secondary hover:text-text-primary"
+          >
+            <EyeIcon off={showPassword} />
+          </button>
+        </div>
         {error && <p className="text-sm text-status-critical">{error}</p>}
         <button
           type="submit"
@@ -76,5 +92,28 @@ export default function LoginPage() {
         </button>
       </form>
     </main>
+  );
+}
+
+/** Inline rather than from an icon package: the web app has no icon dependency,
+ * and this is the only icon on the login screen. `off` draws the struck-through
+ * variant shown while the password is visible. */
+function EyeIcon({ off }: { off: boolean }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1.5 12S5.2 5.5 12 5.5 22.5 12 22.5 12 18.8 18.5 12 18.5 1.5 12 1.5 12Z" />
+      <circle cx="12" cy="12" r="3.2" />
+      {off && <line x1="3.5" y1="20.5" x2="20.5" y2="3.5" />}
+    </svg>
   );
 }

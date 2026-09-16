@@ -31,6 +31,7 @@ import { createMapQueries } from "./queries/mapQuery";
 import { createWishlistQueries } from "./queries/wishlistQuery";
 
 export * from "./client";
+export * from "./loginError";
 export * from "./tokenStore";
 export * from "./baseUrl";
 export { AuthManager, AuthRejectedError, NetworkUnreachableError } from "./authManager";
