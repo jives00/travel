@@ -16,15 +16,22 @@ const inputClass = "w-full rounded border border-gridline bg-transparent p-2 tex
  * Name, link, picture and delete all live in one editor, so there is no second
  * path that can get the thumbnail wrong.
  *
- * Placement is the caller's, via `tripLinksQuery`: an empty box on a trip that
- * hasn't happened yet is a footer, not a headline, so it sinks to the bottom
- * until there's something in it. See `albumsAtTop` in trip-detail.tsx. */
-export function TripAlbums({ tripId }: { tripId: number }) {
+ * Placement is the caller's, driven by `trip.linkCount`: an empty box on a trip
+ * that hasn't happened yet is a footer, not a headline, so it sinks to the
+ * bottom until there's something in it. See `albumsAtTop` in trip-detail.tsx.
+ * Adding or deleting an album therefore has to invalidate the *trip* query too,
+ * or the count that decides the slot goes stale. */
+export function TripAlbums({ tripId, expectedCount = 0 }: { tripId: number; expectedCount?: number }) {
   const queryClient = useQueryClient();
-  const { data: links } = useQuery(travelApi.queries.tripLinksQuery(tripId));
+  const { data: links, isPending } = useQuery(travelApi.queries.tripLinksQuery(tripId));
   const [editing, setEditing] = useState<TripLink | "new" | null>(null);
 
   const rows = links ?? [];
+  // `expectedCount` comes from the trip payload, which has already loaded by the
+  // time anything renders — so the section can hold exactly the right amount of
+  // space from the first paint. Without it the box arrived a second late and
+  // shoved the rest of the page down.
+  const placeholders = isPending ? expectedCount : 0;
 
   return (
     <section className="rounded border border-gridline bg-surface p-4">
@@ -35,7 +42,16 @@ export function TripAlbums({ tripId }: { tripId: number }) {
         </button>
       </div>
 
-      {rows.length === 0 ? (
+      {placeholders > 0 ? (
+        <div className="flex gap-3 overflow-hidden pb-1">
+          {Array.from({ length: placeholders }, (_, i) => (
+            <div key={i} className="w-[336px] shrink-0">
+              <div className="h-[189px] w-full animate-pulse rounded border border-gridline bg-page" />
+              <div className="mt-1 h-5 w-2/3 animate-pulse rounded bg-page" />
+            </div>
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
         <p className="text-sm text-text-muted">
           No albums linked yet — add a share link and a picture for the card.
         </p>
@@ -94,6 +110,13 @@ export function TripAlbums({ tripId }: { tripId: number }) {
           onClose={() => setEditing(null)}
           onSaved={() => {
             void queryClient.invalidateQueries({ queryKey: ["tripLinks", tripId] });
+            // `trip.linkCount` decides which slot this section sits in, so a
+            // create or delete has to refresh the trip as well — otherwise
+            // adding the first album leaves the box at the bottom. `exact`
+            // matters: a prefix match would also invalidate
+            // ["trips", id, "hero-image"], which re-rolls a fresh Unsplash
+            // backdrop on every call — saving an album would change the photo.
+            void queryClient.invalidateQueries({ queryKey: ["trips", tripId], exact: true });
             setEditing(null);
           }}
         />

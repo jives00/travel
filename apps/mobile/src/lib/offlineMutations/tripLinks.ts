@@ -39,6 +39,15 @@ function keyFor(tripId: number) {
   return ["tripLinks", tripId] as const;
 }
 
+/** `trip.linkCount` decides which slot the albums section sits in and how much
+ * space it reserves, so creating or deleting a link has to refresh the trip too.
+ * `exact` matters: a prefix match would also hit ["trips", id, "hero-image"],
+ * which re-rolls a fresh Unsplash backdrop every call. */
+function invalidateTripAndLinks(tripId: number): void {
+  void queryClient.invalidateQueries({ queryKey: keyFor(tripId) });
+  void queryClient.invalidateQueries({ queryKey: ["trips", tripId], exact: true });
+}
+
 export function useCreateTripLink(tripId: number) {
   const queryKey = keyFor(tripId);
   const m = useMutation<TripLink, Error, CreateTripLinkVars>({
@@ -71,7 +80,7 @@ export function useCreateTripLink(tripId: number) {
       const c = ctx as { prev?: TripLink[] } | undefined;
       if (c?.prev) queryClient.setQueryData(queryKey, c.prev);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => invalidateTripAndLinks(tripId),
   });
   return {
     ...m,
@@ -118,7 +127,7 @@ export function useRemoveTripLink(tripId: number) {
       const c = ctx as { prev?: TripLink[] } | undefined;
       if (c?.prev) queryClient.setQueryData(queryKey, c.prev);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => invalidateTripAndLinks(tripId),
   });
 }
 

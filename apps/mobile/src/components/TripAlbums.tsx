@@ -14,10 +14,13 @@ import { Card, Button, TextField, Sheet } from "./ui";
  * image needs `expo-image-picker`, a native module, and adding one forces a
  * dev-client and APK rebuild — deliberately deferred rather than smuggled in.
  *
- * Placement is the caller's (see `albumsAtTop` in TripDetailView): an empty box
- * on a trip that hasn't happened yet sinks to the bottom. */
-export function TripAlbums({ tripId }: { tripId: number }) {
-  const { data: links } = useQuery(travelApi.queries.tripLinksQuery(tripId));
+ * Placement is the caller's, driven by `trip.linkCount` (see `albumsAtTop` in
+ * TripDetailView): an empty box on a trip that hasn't happened yet sinks to the
+ * bottom. That count also sizes the placeholder below, so the section holds its
+ * final height from the first paint instead of appearing late and pushing the
+ * rest of the page down. */
+export function TripAlbums({ tripId, expectedCount = 0 }: { tripId: number; expectedCount?: number }) {
+  const { data: links, isPending } = useQuery(travelApi.queries.tripLinksQuery(tripId));
 
   const [editing, setEditing] = useState<TripLink | "new" | null>(null);
   const create = useCreateTripLink(tripId);
@@ -25,6 +28,7 @@ export function TripAlbums({ tripId }: { tripId: number }) {
   const remove = useRemoveTripLink(tripId);
 
   const rows = links ?? [];
+  const placeholders = isPending ? expectedCount : 0;
 
   return (
     <>
@@ -35,7 +39,16 @@ export function TripAlbums({ tripId }: { tripId: number }) {
         </Pressable>
       </View>
 
-      {rows.length === 0 ? (
+      {placeholders > 0 ? (
+        <ScrollView horizontal scrollEnabled={false} showsHorizontalScrollIndicator={false} className="-mx-1">
+          {Array.from({ length: placeholders }, (_, i) => (
+            <View key={i} className="mx-1 w-[312px]">
+              <View className="h-[176px] w-[312px] rounded bg-surface dark:bg-surface-dark" />
+              <View className="mt-1 h-5 w-2/3 rounded bg-surface dark:bg-surface-dark" />
+            </View>
+          ))}
+        </ScrollView>
+      ) : rows.length === 0 ? (
         <Card>
           <Text className="text-sm text-text-secondary dark:text-text-secondary-dark">
             No albums linked yet.

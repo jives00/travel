@@ -44,6 +44,7 @@ interface TripRow {
   updatedAt: string;
   statusOverride: "dreaming" | "planned" | "active" | "past" | null;
   isPrimary: number;
+  linkCount: number;
 }
 
 const TRIP_SELECT = `
@@ -51,7 +52,13 @@ const TRIP_SELECT = `
          list_image_url AS listImageUrl, list_image_photographer_name AS listImagePhotographerName,
          list_image_photographer_url AS listImagePhotographerUrl, home_currency AS homeCurrency,
          archived_at AS archivedAt, created_at AS createdAt, updated_at AS updatedAt,
-         status_override AS statusOverride, is_primary AS isPrimary
+         status_override AS statusOverride, is_primary AS isPrimary,
+         -- How many photo albums the trip has. A correlated subquery rather
+         -- than a second round trip because the *placement* of the albums box
+         -- depends on it: the trip query already gates the whole page, so
+         -- knowing the count here means the section can reserve its space on
+         -- the first paint instead of appearing late and shoving the page down.
+         (SELECT COUNT(*) FROM trip_links WHERE trip_links.trip_id = trips.id) AS linkCount
   FROM trips
 `;
 

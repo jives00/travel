@@ -47,16 +47,15 @@ const COLLAPSED_LISTS_KEY = "travel:collapsedListIds";
 export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchived?: () => void }) {
   const navigation = useNavigation<BudgetNav>();
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
-  const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { data: bookings, isPending: bookingsPending } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
   // Both already cached by the embedded itinerary/map sections — read here so
   // the Share button can build its text without extra fetches.
   const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
-  const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
-  const { data: dismissals } = useQuery(travelApi.queries.readinessDismissalsQuery(tripId));
-  // Only to place the albums section — the section reads the same cached
-  // query, so this is not a second request.
-  const { data: tripLinks } = useQuery(travelApi.queries.tripLinksQuery(tripId));
+  const { data: tripPlaces, isPending: placesPending } = useQuery(travelApi.queries.placesQuery({ tripId }));
+  const { data: dismissals, isPending: dismissalsPending } = useQuery(
+    travelApi.queries.readinessDismissalsQuery(tripId),
+  );
   const { data: hero } = useQuery({
     ...travelApi.queries.heroImageQuery(tripId),
     enabled: !trip?.heroImageUrl,
@@ -108,7 +107,16 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const isPast = trip.status === "past";
   // An empty albums box on a trip that hasn't happened yet is a footer, not a
   // headline — it sinks below the map until there's a photo in it.
-  const albumsAtTop = isPast || (tripLinks?.length ?? 0) > 0;
+  // Both the slot and the reserved height come from `trip.linkCount`, which has
+  // already loaded by the time anything renders — so the section lands in its
+  // final place at its final size on the first paint. Mirrors web.
+  const albumCount = trip.linkCount;
+  const albumsAtTop = isPast || albumCount > 0;
+  // Gate readiness on the queries having *settled*, not on their data being
+  // empty: `allReadinessNudges` derives "which legs have a hotel" from
+  // `bookings`, so an unloaded array makes every city look unbooked and the box
+  // flashes up before vanishing. Mirrors web — see the longer note there.
+  const readinessLoading = bookingsPending || placesPending || dismissalsPending;
   const today = todayUtcMidnight();
   const countdown = computeCountdown(trip, sortedLegs, bookings ?? [], today);
   const cityChain = sortedLegs.map((l) => l.city).join(" → ");
@@ -199,7 +207,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
           {/* Nothing outstanding → no box, rather than a card that says so. The
               dismissed footer rides inside it, so restoring is reachable again as
               soon as any nudge is. Mirrors web. */}
-          {readiness.groups.length > 0 && (
+          {!readinessLoading && readiness.groups.length > 0 && (
             <Card className="mb-4">
               <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Trip readiness</Text>
               {readiness.groups.map((g) => (
@@ -278,12 +286,12 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
             )}
           </View>
 
-          {albumsAtTop && <TripAlbums tripId={tripId} />}
+          {albumsAtTop && <TripAlbums tripId={tripId} expectedCount={albumCount} />}
 
           <Text className="mb-2 mt-4 text-xs font-semibold uppercase text-text-muted">Map</Text>
           <TripMap tripId={tripId} />
 
-          {!albumsAtTop && <TripAlbums tripId={tripId} />}
+          {!albumsAtTop && <TripAlbums tripId={tripId} expectedCount={albumCount} />}
         </View>
         </>
       )}

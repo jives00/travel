@@ -82,6 +82,20 @@ describe("computeReadiness", () => {
     expect(computeReadiness({ trip: trip("past"), legs, bookings: [], places: [] }).groups).toEqual([]);
   });
 
+  // Pins the contract that forces callers to gate on their queries having
+  // settled. This behaviour is *correct* — the function is pure and can only
+  // read what it was handed — but it means an unloaded `bookings` array is
+  // indistinguishable from "nothing is booked", which made the readiness box
+  // flash up and vanish on every trip-page load (todo #21). Don't "fix" this
+  // here by special-casing empty input: the caller knows the difference between
+  // empty and not-yet-loaded, and this function cannot.
+  it("cannot tell an empty bookings list from an unloaded one — every leg looks unbooked", () => {
+    const legs = [leg({ id: 1, city: "Madrid", ...dated }), leg({ id: 2, city: "Seville", ...dated })];
+    const r = computeReadiness({ trip: trip("planned"), legs, bookings: [], places: [] });
+    expect(r.groups.map((g) => g.rule)).toEqual(["leg-lodging"]);
+    expect(r.groups[0].nudges.map((n) => n.key)).toEqual([legLodgingKey(1), legLodgingKey(2)]);
+  });
+
   it("splits ideas out as info, not a warning", () => {
     const r = computeReadiness({
       trip: trip("planned"),

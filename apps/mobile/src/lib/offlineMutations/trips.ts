@@ -43,6 +43,8 @@ function optimisticTrip(name: string, tempId: number): Trip {
     listImageUrl: null,
     listImagePhotographerName: null,
     listImagePhotographerUrl: null,
+    // A trip created offline has no albums yet, so the section reserves no space.
+    linkCount: 0,
     homeCurrency: null,
     archivedAt: null,
     createdAt: now,

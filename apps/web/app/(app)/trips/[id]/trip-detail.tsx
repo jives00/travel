@@ -199,13 +199,12 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: trip } = useQuery(travelApi.queries.tripQuery(tripId));
-  const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
-  const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
+  const { data: tripPlaces, isPending: placesPending } = useQuery(travelApi.queries.placesQuery({ tripId }));
+  const { data: bookings, isPending: bookingsPending } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
-  const { data: dismissals } = useQuery(travelApi.queries.readinessDismissalsQuery(tripId));
-  // Only to decide where the albums section goes — the section fetches its
-  // own rows; this is the same cached query, not a second request.
-  const { data: tripLinks } = useQuery(travelApi.queries.tripLinksQuery(tripId));
+  const { data: dismissals, isPending: dismissalsPending } = useQuery(
+    travelApi.queries.readinessDismissalsQuery(tripId),
+  );
   // Already cached by the itinerary section below — this just reads the same
   // entry so the hero's Share button can build its text.
   const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
@@ -357,13 +356,29 @@ export function TripDetail({ tripId }: { tripId: number }) {
     { trip, legs: sortedLegs, bookings: bookings ?? [], places: tripPlaces ?? [] },
     (dismissals ?? []).map((d) => d.key),
   );
+  // **Gate on the queries having settled, not on their data being empty.**
+  // These four land independently, and an empty `bookings` doesn't mean "no
+  // lodging booked" — it means "not loaded yet". `allReadinessNudges` builds
+  // `legsWithHotel` from that array, so mid-load *every* city looks unbooked and
+  // the box appears for a second before vanishing. Unloaded dismissals do the
+  // same in reverse, briefly showing nudges that were already dismissed.
+  // `isPending` is false once a query settles either way, so an error still
+  // renders (with whatever loaded) rather than hiding the box forever.
+  const readinessLoading = bookingsPending || placesPending || dismissalsPending;
 
   const linkedLists = (allLists ?? []).filter((l) => l.tripId === tripId);
   const isPast = trip.status === "past";
   // An empty albums box on a trip that hasn't happened yet is a footer, not a
   // headline — it sinks to the bottom until there's a photo in it. Once there
   // is one, or the trip is over, it's the first thing worth seeing.
-  const albumsAtTop = isPast || (tripLinks?.length ?? 0) > 0;
+  //
+  // Both the slot and the height come from `trip.linkCount`, which the trip
+  // query already carried by the time anything rendered — so the section lands
+  // in its final place at its final size on the first paint. Deriving it from
+  // `tripLinksQuery` instead meant the box appeared a second late, in the wrong
+  // slot, and pushed everything below it down the page.
+  const albumCount = trip.linkCount;
+  const albumsAtTop = isPast || albumCount > 0;
 
   return (
     <div className="space-y-6">
@@ -599,7 +614,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
             whole box goes away rather than sitting there saying so; the dismissed
             footer (the only way to restore) rides along, so it's reachable again
             as soon as any nudge is. */}
-        {readiness.groups.length > 0 && (
+        {!readinessLoading && readiness.groups.length > 0 && (
           <section className="rounded border border-gridline bg-surface p-4">
             <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Trip readiness</h2>
             <ul className="space-y-1">
@@ -655,7 +670,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
         {/* Albums span the full width above the columns — the layout decided
             for the recap (plans/todo.md #9a), and the same on a live trip once
             there is actually a photo to show. */}
-        {albumsAtTop && <TripAlbums tripId={tripId} />}
+        {albumsAtTop && <TripAlbums tripId={tripId} expectedCount={albumCount} />}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Itinerary — cities, their dates/lodging, and everything scheduled */}
@@ -756,7 +771,7 @@ export function TripDetail({ tripId }: { tripId: number }) {
           </div>
         </div>
 
-        {!albumsAtTop && <TripAlbums tripId={tripId} />}
+        {!albumsAtTop && <TripAlbums tripId={tripId} expectedCount={albumCount} />}
         </>
       )}
     </div>

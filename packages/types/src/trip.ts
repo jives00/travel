@@ -54,6 +54,12 @@ export const Trip = z.object({
   isPrimary: z.boolean(),
   // computed, attached by the API at read time — statusOverride ?? computed
   status: TripStatus,
+  // How many photo albums are linked. Carried on the trip because the albums
+  // section's *placement* depends on it (empty sinks to the bottom), and the
+  // trip query is the one that gates the page — so the box can reserve its
+  // space on the first paint rather than appearing late and shifting
+  // everything below it. The rows themselves still load separately.
+  linkCount: z.number().int(),
   legs: z.array(Leg),
 });
 export type Trip = z.infer<typeof Trip>;
