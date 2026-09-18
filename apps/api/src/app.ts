@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import jwt from "@fastify/jwt";
 import compress from "@fastify/compress";
+import multipart from "@fastify/multipart";
 
 import { healthRoutes } from "./routes/health.routes";
 import { authRoutes } from "./routes/auth.routes";
@@ -13,6 +14,9 @@ import { tripsRoutes } from "./routes/trips.routes";
 import { legsRoutes } from "./routes/legs.routes";
 import { itineraryRoutes } from "./routes/itinerary.routes";
 import { dayNotesRoutes } from "./routes/day-notes.routes";
+import { tripLinksRoutes } from "./routes/trip-links.routes";
+import { recapRoutes } from "./routes/recap.routes";
+import { linkImagesRoutes } from "./routes/link-images.routes";
 import { readinessRoutes } from "./routes/readiness.routes";
 import { bookingsRoutes, bookingsGlobalRoutes } from "./routes/bookings.routes";
 import { expensesRoutes } from "./routes/expenses.routes";
@@ -45,6 +49,9 @@ export function buildApp(): FastifyInstance {
   void app.register(cookie);
   void app.register(jwt, { secret: process.env.JWT_SECRET ?? "dev-secret-change-me" });
   void app.register(compress); // §0.1 performance requirement — gzip/brotli on API responses
+  // Uploaded link thumbnails (trip_links). The per-route limit is what
+  // actually enforces the size cap; this is the parser, not the policy.
+  void app.register(multipart);
 
   void app.register(healthRoutes); // no /api prefix — devdash + mobile probe
   void app.register(authRoutes, { prefix: "/api/auth" });
@@ -54,6 +61,9 @@ export function buildApp(): FastifyInstance {
   void app.register(legsRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/legs/*
   void app.register(itineraryRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/itinerary/*
   void app.register(dayNotesRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/day-notes/*
+  void app.register(tripLinksRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/links/*
+  void app.register(recapRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/recap/*
+  void app.register(linkImagesRoutes, { prefix: "/api/link-images" }); // unauthenticated; see the route
   void app.register(readinessRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/readiness/*
   void app.register(bookingsRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/bookings/*
   void app.register(bookingsGlobalRoutes, { prefix: "/api/bookings" }); // /api/bookings/hotels

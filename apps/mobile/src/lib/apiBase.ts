@@ -94,6 +94,15 @@ export class ProbingBaseUrlResolver implements BaseUrlResolver {
     });
   }
 
+  /** The base already resolved, or null if probing hasn't settled yet.
+   * Synchronous on purpose: an <Image source={{ uri }}> needs a string at render
+   * time and cannot await, so a relative API path (an uploaded thumbnail) is
+   * rendered only once this is known. Null simply means "not yet" — the query
+   * that carries the path will re-render when it is. */
+  get resolvedBaseUrl(): string | null {
+    return this.resolved;
+  }
+
   /** Force re-probe after a runtime network failure. */
   reset(): void {
     this.resolved = null;

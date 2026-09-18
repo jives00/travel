@@ -34,9 +34,6 @@ export interface BudgetInputLine {
   actualHome: number | null;
   /** Which funding source paid for it; null is the unassigned bucket. */
   fundingSourceId?: number | null;
-  /** Miles/points burned. A different unit from money — summed on its own and
-   * never added to any home-currency total. */
-  points?: number | null;
 }
 
 export interface BudgetTotals {
@@ -72,9 +69,7 @@ export interface BudgetRollup {
   grand: BudgetTotals;
   byCategory: (BudgetTotals & { category: string })[];
   byLeg: (BudgetTotals & { legId: number | null })[];
-  bySource: (BudgetTotals & { fundingSourceId: number | null; points: number })[];
-  /** Trip-wide points total, kept out of `grand` — it has no currency. */
-  points: number;
+  bySource: (BudgetTotals & { fundingSourceId: number | null })[];
   /** Lines with an estimate but no actual — the "still just a guess" count. */
   unresolvedCount: number;
 }
@@ -85,8 +80,7 @@ export function rollupBudget(lines: BudgetInputLine[]): BudgetRollup {
   const grand = emptyTotals();
   const byCategory = new Map<string, BudgetTotals>();
   const byLeg = new Map<number | null, BudgetTotals>();
-  const bySource = new Map<number | null, BudgetTotals & { points: number }>();
-  let points = 0;
+  const bySource = new Map<number | null, BudgetTotals>();
   let unresolvedCount = 0;
 
   for (const line of lines) {
@@ -103,12 +97,9 @@ export function rollupBudget(lines: BudgetInputLine[]): BudgetRollup {
     // A line with no source still gets a bucket (null) — "unassigned" is a
     // real answer the UI needs to show, not an absence to skip.
     const sourceId = line.fundingSourceId ?? null;
-    const source = bySource.get(sourceId) ?? { ...emptyTotals(), points: 0 };
+    const source = bySource.get(sourceId) ?? emptyTotals();
     accumulate(source, line);
-    source.points += line.points ?? 0;
     bySource.set(sourceId, source);
-
-    points += line.points ?? 0;
 
     if (line.estimatedHome != null && line.actualHome == null) unresolvedCount += 1;
   }
@@ -117,12 +108,7 @@ export function rollupBudget(lines: BudgetInputLine[]): BudgetRollup {
     grand: roundTotals(grand),
     byCategory: [...byCategory.entries()].map(([category, t]) => ({ category, ...roundTotals(t) })),
     byLeg: [...byLeg.entries()].map(([legId, t]) => ({ legId, ...roundTotals(t) })),
-    bySource: [...bySource.entries()].map(([fundingSourceId, t]) => ({
-      fundingSourceId,
-      ...roundTotals(t),
-      points: t.points,
-    })),
-    points,
+    bySource: [...bySource.entries()].map(([fundingSourceId, t]) => ({ fundingSourceId, ...roundTotals(t) })),
     unresolvedCount,
   };
 }

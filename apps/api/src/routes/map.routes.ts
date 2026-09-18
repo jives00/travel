@@ -3,7 +3,7 @@ import type { MapCityPoint, MapOverview } from "@travel/types";
 import { computeTripStatus, mapBucketForTripStatus } from "@travel/core";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
-import { geocodeCity } from "../services/weather.client";
+import { backfillLegGeo } from "../services/legGeo";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -60,6 +60,10 @@ export async function mapRoutes(app: FastifyInstance): Promise<void> {
       [tripIds],
     );
     const legs = legRows as LegRow[];
+    // Fills lat/lng (and, in the same lookup, timezone and country) for any leg
+    // that hasn't been geocoded yet — shared with the trips route so a city is
+    // resolved once, not once per column that wants it.
+    await backfillLegGeo(legs);
 
     // Group by trip so computeTripStatus (which looks at ALL of a trip's legs
     // together to find the earliest/latest date) gets the full leg set, not
@@ -77,19 +81,13 @@ export async function mapRoutes(app: FastifyInstance): Promise<void> {
       return computeTripStatus({ legs: tripLegs });
     }
 
-    // Self-healing cache: legs.lat/lng is only ever populated here, lazily, the
-    // first time a leg is seen with a free-text city and no coordinates yet.
     const visited: MapCityPoint[] = [];
     const planned: MapCityPoint[] = [];
     for (const leg of legs) {
-      let { lat, lng } = leg;
-      if (lat == null || lng == null) {
-        const geo = await geocodeCity(leg.city).catch(() => null);
-        if (!geo) continue;
-        lat = geo.lat;
-        lng = geo.lng;
-        await getPool().query("UPDATE legs SET lat = ?, lng = ? WHERE id = ?", [lat, lng, leg.id]);
-      }
+      const { lat, lng } = leg;
+      // Still null after the backfill means the lookup failed — skip the pin
+      // rather than plotting it at (0, 0).
+      if (lat == null || lng == null) continue;
       const trip = tripById.get(leg.tripId)!;
       const bucket = mapBucketForTripStatus(statusForTrip(leg.tripId));
       const point: MapCityPoint = {

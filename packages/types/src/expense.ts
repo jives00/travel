@@ -40,13 +40,9 @@ export const Expense = z.object({
   actual: ExpenseMoney.nullable(),
   actualBookingId: z.number().int().nullable(),
   // One source per line, not one per side: at estimate time you're already
-  // planning to burn points, and at actual time you're recording the card you
+  // planning which card pays, and at actual time you're recording the one you
   // used — it's the same answer, refined. See FundingSource.
   fundingSourceId: z.number().int().nullable(),
-  // A bare quantity of miles/points, never FX-converted and never folded into
-  // a money total. Sits beside the cash side rather than replacing it: a
-  // points booking usually still has a cash value worth recording.
-  points: z.number().int().nullable(),
   homeCurrency: z.string().length(3),
   placeId: z.number().int().nullable(),
   itineraryItemId: z.number().int().nullable(),
@@ -76,7 +72,6 @@ export const CreateExpenseBody = z.object({
   actual: ExpenseMoneyInput.nullable().optional(),
   actualBookingId: z.number().int().nullable().optional(),
   fundingSourceId: z.number().int().nullable().optional(),
-  points: z.number().int().nonnegative().nullable().optional(),
 });
 export type CreateExpenseBody = z.infer<typeof CreateExpenseBody>;
 
@@ -103,11 +98,9 @@ export const BudgetLegRollup = BudgetTotals.extend({ legId: z.number().int().nul
 export type BudgetLegRollup = z.infer<typeof BudgetLegRollup>;
 
 /** Spend grouped by where the money came from. `fundingSourceId: null` is the
- * unassigned bucket — every line starts there. `points` is summed separately
- * from the money totals because it is a different unit entirely. */
+ * unassigned bucket — every line starts there. */
 export const BudgetSourceRollup = BudgetTotals.extend({
   fundingSourceId: z.number().int().nullable(),
-  points: z.number(),
 });
 export type BudgetSourceRollup = z.infer<typeof BudgetSourceRollup>;
 
@@ -130,7 +123,6 @@ export const BudgetLine = z.object({
   // Actual came from a linked booking's price (live), not a typed value.
   actualFromBooking: z.boolean(),
   fundingSourceId: z.number().int().nullable(),
-  points: z.number().int().nullable(),
   // Has an estimate but no actual yet — the "still just a guess" flag.
   unresolved: z.boolean(),
 });
@@ -142,8 +134,6 @@ export const BudgetSummary = z.object({
   byCategory: z.array(BudgetCategoryRollup),
   byLeg: z.array(BudgetLegRollup),
   bySource: z.array(BudgetSourceRollup),
-  // Trip-wide point total. Deliberately not part of `grand`, which is money.
-  points: z.number(),
   unresolvedCount: z.number().int(),
   lines: z.array(BudgetLine),
 });

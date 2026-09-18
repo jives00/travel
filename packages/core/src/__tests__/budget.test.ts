@@ -88,10 +88,9 @@ describe("rollupBudget", () => {
 });
 
 describe("rollupBudget by funding source", () => {
-  // A points flight (cash value recorded alongside the miles), a card dinner,
-  // and an unattributed museum ticket.
+  // A flight, a card dinner, and an unattributed museum ticket.
   const lines = [
-    { category: "flights", legId: 1, estimatedHome: null, actualHome: 420, fundingSourceId: 3, points: 58000 },
+    { category: "flights", legId: 1, estimatedHome: null, actualHome: 420, fundingSourceId: 3 },
     { category: "food", legId: 1, estimatedHome: null, actualHome: 80, fundingSourceId: 1 },
     { category: "activities", legId: 1, estimatedHome: null, actualHome: 25, fundingSourceId: null },
   ];
@@ -101,14 +100,7 @@ describe("rollupBudget by funding source", () => {
     expect(r.bySource.find((s) => s.fundingSourceId === 3)!.current).toBe(420);
     expect(r.bySource.find((s) => s.fundingSourceId === 1)!.current).toBe(80);
     expect(r.bySource.find((s) => s.fundingSourceId === null)!.current).toBe(25);
-  });
-
-  it("sums points per source and trip-wide, without touching money totals", () => {
-    const r = rollupBudget(lines);
-    expect(r.points).toBe(58000);
-    expect(r.bySource.find((s) => s.fundingSourceId === 3)!.points).toBe(58000);
-    expect(r.bySource.find((s) => s.fundingSourceId === 1)!.points).toBe(0);
-    // Points are a different unit — the grand total is still just the money.
+    // The split is a regrouping of the same money — it must still add up.
     expect(r.grand.current).toBe(525);
   });
 });

@@ -19,6 +19,8 @@ import { useHideDoneLists } from "@/lib/listPrefs";
 import { Modal, TripItinerary } from "./trip-itinerary";
 import { TripWeather } from "./trip-weather";
 import { TripMap } from "./trip-map";
+import { TripAlbums } from "./trip-albums";
+import { TripRecap } from "./trip-recap";
 
 const COLLAPSED_LISTS_KEY = "travel:collapsedListIds";
 
@@ -201,6 +203,9 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const { data: bookings } = useQuery(travelApi.queries.bookingsQuery(tripId));
   const { data: allLists } = useQuery(travelApi.queries.listsQuery(tripId));
   const { data: dismissals } = useQuery(travelApi.queries.readinessDismissalsQuery(tripId));
+  // Only to decide where the albums section goes — the section fetches its
+  // own rows; this is the same cached query, not a second request.
+  const { data: tripLinks } = useQuery(travelApi.queries.tripLinksQuery(tripId));
   // Already cached by the itinerary section below — this just reads the same
   // entry so the hero's Share button can build its text.
   const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
@@ -217,6 +222,8 @@ export function TripDetail({ tripId }: { tripId: number }) {
   const [savingStatus, setSavingStatus] = useState(false);
   const [togglingPrimary, setTogglingPrimary] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
+  // A past trip opens on the recap; this is the escape hatch back to the plan.
+  const [showFullTrip, setShowFullTrip] = useState(false);
 
   const dismissalsKey = ["readinessDismissals", tripId] as const;
   const dismiss = useMutation({
@@ -352,6 +359,11 @@ export function TripDetail({ tripId }: { tripId: number }) {
   );
 
   const linkedLists = (allLists ?? []).filter((l) => l.tripId === tripId);
+  const isPast = trip.status === "past";
+  // An empty albums box on a trip that hasn't happened yet is a footer, not a
+  // headline — it sinks to the bottom until there's a photo in it. Once there
+  // is one, or the trip is over, it's the first thing worth seeing.
+  const albumsAtTop = isPast || (tripLinks?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -566,162 +578,187 @@ export function TripDetail({ tripId }: { tripId: number }) {
         </Modal>
       )}
 
-      {/* Trip readiness — computeReadiness already returns nothing for a past
-          trip, and hides whatever's been dismissed. With nothing outstanding the
-          whole box goes away rather than sitting there saying so; the dismissed
-          footer (the only way to restore) rides along, so it's reachable again
-          as soon as any nudge is. */}
-      {readiness.groups.length > 0 && (
-        <section className="rounded border border-gridline bg-surface p-4">
-          <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Trip readiness</h2>
-          <ul className="space-y-1">
-            {readiness.groups.map((g) => (
-              <li key={g.rule} className="group flex items-center gap-2">
-                <span
-                  className={`text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary"}`}
-                >
-                  {g.text}
-                </span>
-                {/* Dismisses every subject in the line as it stands now — a
-                    city added later is a new key, so it still warns. */}
-                <button
-                  onClick={() => dismiss.mutate(g.nudges.map((n) => n.key))}
-                  title={`Dismiss: ${g.nudges.map((n) => n.subjectLabel).join(", ")}`}
-                  aria-label={`Dismiss ${g.text}`}
-                  className="text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100"
-                >
-                  <span className="material-symbols-outlined text-base" aria-hidden="true">
-                    close
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {/* Without this, dismissing is a one-way trapdoor — nothing else in
-              the UI ever mentions a hidden nudge again. */}
-          {readiness.dismissed.length > 0 && (
-            <div className="mt-3 border-t border-gridline pt-2 text-xs text-text-muted">
-              <button onClick={() => setShowDismissed((v) => !v)} className="hover:text-text-secondary">
-                {readiness.dismissed.length} dismissed — {showDismissed ? "hide" : "show"}
-              </button>
-              {showDismissed && (
-                <ul className="mt-2 space-y-1">
-                  {readiness.dismissed.map((n) => (
-                    <li key={n.key} className="flex items-center gap-2">
-                      <span className="line-through">{readinessNudgeLabel(n)}</span>
-                      <button
-                        onClick={() => restore.mutate([n.key])}
-                        className="text-text-secondary hover:text-text-primary"
-                      >
-                        Restore
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+      {/* A past trip opens on its recap instead of the plan (plans/todo.md
+          #9a). The plan isn't gone — "show full trip" is how you get back to
+          the itinerary and map to answer "where did we eat in Seville", and
+          it's the only route to the lists, which the recap drops entirely. */}
+      {isPast && !showFullTrip ? (
+        <TripRecap tripId={tripId} trip={trip} onShowFullTrip={() => setShowFullTrip(true)} />
+      ) : (
+        <>
+          {isPast && (
+            <button
+              onClick={() => setShowFullTrip(false)}
+              className="text-sm text-category-transit hover:underline"
+            >
+              &larr; Back to recap
+            </button>
           )}
-        </section>
-      )}
+        {/* Trip readiness — computeReadiness already returns nothing for a past
+            trip, and hides whatever's been dismissed. With nothing outstanding the
+            whole box goes away rather than sitting there saying so; the dismissed
+            footer (the only way to restore) rides along, so it's reachable again
+            as soon as any nudge is. */}
+        {readiness.groups.length > 0 && (
+          <section className="rounded border border-gridline bg-surface p-4">
+            <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Trip readiness</h2>
+            <ul className="space-y-1">
+              {readiness.groups.map((g) => (
+                <li key={g.rule} className="group flex items-center gap-2">
+                  <span
+                    className={`text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary"}`}
+                  >
+                    {g.text}
+                  </span>
+                  {/* Dismisses every subject in the line as it stands now — a
+                      city added later is a new key, so it still warns. */}
+                  <button
+                    onClick={() => dismiss.mutate(g.nudges.map((n) => n.key))}
+                    title={`Dismiss: ${g.nudges.map((n) => n.subjectLabel).join(", ")}`}
+                    aria-label={`Dismiss ${g.text}`}
+                    className="text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100"
+                  >
+                    <span className="material-symbols-outlined text-base" aria-hidden="true">
+                      close
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {/* Without this, dismissing is a one-way trapdoor — nothing else in
+                the UI ever mentions a hidden nudge again. */}
+            {readiness.dismissed.length > 0 && (
+              <div className="mt-3 border-t border-gridline pt-2 text-xs text-text-muted">
+                <button onClick={() => setShowDismissed((v) => !v)} className="hover:text-text-secondary">
+                  {readiness.dismissed.length} dismissed — {showDismissed ? "hide" : "show"}
+                </button>
+                {showDismissed && (
+                  <ul className="mt-2 space-y-1">
+                    {readiness.dismissed.map((n) => (
+                      <li key={n.key} className="flex items-center gap-2">
+                        <span className="line-through">{readinessNudgeLabel(n)}</span>
+                        <button
+                          onClick={() => restore.mutate([n.key])}
+                          className="text-text-secondary hover:text-text-primary"
+                        >
+                          Restore
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Itinerary — cities, their dates/lodging, and everything scheduled */}
-        <section className="lg:col-span-2">
-          <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Itinerary</h2>
-          <TripItinerary tripId={tripId} onHoverPlace={setHoveredPlaceId} onActiveLegChange={setActiveLegId} />
-        </section>
+        {/* Albums span the full width above the columns — the layout decided
+            for the recap (plans/todo.md #9a), and the same on a live trip once
+            there is actually a photo to show. */}
+        {albumsAtTop && <TripAlbums tripId={tripId} />}
 
-        <div className="space-y-4 self-start lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
-          <TripWeather tripId={tripId} />
-          <section>
-            <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Map</h2>
-            <TripMap tripId={tripId} hoveredPlaceId={hoveredPlaceId} activeLegId={activeLegId} />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* Itinerary — cities, their dates/lodging, and everything scheduled */}
+          <section className="lg:col-span-2">
+            <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Itinerary</h2>
+            <TripItinerary tripId={tripId} onHoverPlace={setHoveredPlaceId} onActiveLegChange={setActiveLegId} />
           </section>
 
-          {linkedLists.length > 0 && (
-            <section className="rounded border border-gridline bg-surface p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase text-text-muted">Lists</h2>
-                <Link href="/lists" className="text-xs text-category-transit">
-                  Manage in Lists →
-                </Link>
-              </div>
-              <div className="space-y-3">
-                {linkedLists.map((list) => {
-                  const collapsed = collapsedListIds.has(list.id);
-                  const hideDone = hidesDone(list.id);
-                  const doneCount = list.items.filter((i) => i.done).length;
-                  const visibleItems = hideDone ? list.items.filter((i) => !i.done) : list.items;
-                  return (
-                    <div key={list.id}>
-                      <div className="flex items-center justify-between gap-2">
-                        <button
-                          onClick={() => toggleListCollapsed(list.id)}
-                          className="flex flex-1 items-center gap-2 text-left font-medium text-text-primary"
-                        >
-                          <span className="select-none text-text-muted">{collapsed ? "▸" : "▾"}</span>
-                          {list.name}
-                        </button>
-                        {!collapsed && doneCount > 0 && (
+          <div className="space-y-4 self-start lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+            <TripWeather tripId={tripId} />
+            <section>
+              <h2 className="mb-2 text-sm font-semibold uppercase text-text-muted">Map</h2>
+              <TripMap tripId={tripId} hoveredPlaceId={hoveredPlaceId} activeLegId={activeLegId} />
+            </section>
+
+            {linkedLists.length > 0 && (
+              <section className="rounded border border-gridline bg-surface p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold uppercase text-text-muted">Lists</h2>
+                  <Link href="/lists" className="text-xs text-category-transit">
+                    Manage in Lists →
+                  </Link>
+                </div>
+                <div className="space-y-3">
+                  {linkedLists.map((list) => {
+                    const collapsed = collapsedListIds.has(list.id);
+                    const hideDone = hidesDone(list.id);
+                    const doneCount = list.items.filter((i) => i.done).length;
+                    const visibleItems = hideDone ? list.items.filter((i) => !i.done) : list.items;
+                    return (
+                      <div key={list.id}>
+                        <div className="flex items-center justify-between gap-2">
                           <button
-                            onClick={() => toggleHideDone(list.id)}
-                            className="text-xs text-text-secondary hover:text-text-primary"
-                            title={hideDone ? "Show completed items" : "Hide completed items"}
+                            onClick={() => toggleListCollapsed(list.id)}
+                            className="flex flex-1 items-center gap-2 text-left font-medium text-text-primary"
                           >
-                            {hideDone ? `Show done (${doneCount})` : "Hide done"}
+                            <span className="select-none text-text-muted">{collapsed ? "▸" : "▾"}</span>
+                            {list.name}
                           </button>
+                          {!collapsed && doneCount > 0 && (
+                            <button
+                              onClick={() => toggleHideDone(list.id)}
+                              className="text-xs text-text-secondary hover:text-text-primary"
+                              title={hideDone ? "Show completed items" : "Hide completed items"}
+                            >
+                              {hideDone ? `Show done (${doneCount})` : "Hide done"}
+                            </button>
+                          )}
+                        </div>
+                        {!collapsed && (
+                          <ul className="mt-2 ml-5 space-y-2">
+                            {visibleItems.map((item) => (
+                              <li key={item.id} className="flex items-center gap-2 text-base text-text-primary">
+                                <input
+                                  type="checkbox"
+                                  checked={item.done}
+                                  onChange={(e) => setListItemDone(list.id, item.id, e.target.checked)}
+                                  className="h-5 w-5 accent-category-transit"
+                                />
+                                <span className={item.done ? "text-text-muted line-through" : undefined}>
+                                  {item.text}
+                                </span>
+                              </li>
+                            ))}
+                            {list.items.length === 0 && <p className="text-sm text-text-muted">No items yet.</p>}
+                            {list.items.length > 0 && visibleItems.length === 0 && (
+                              <p className="text-sm text-text-muted">All {doneCount} items done.</p>
+                            )}
+                          </ul>
+                        )}
+                        {!collapsed && (
+                          <form
+                            onSubmit={(e) => addListItem(e, list.id)}
+                            className="mt-2 ml-5 flex gap-2"
+                          >
+                            <input
+                              className="flex-1 rounded border border-gridline bg-transparent p-1 text-xs text-text-primary"
+                              placeholder="Add an item…"
+                              value={listItemText[list.id] ?? ""}
+                              onChange={(e) =>
+                                setListItemText((prev) => ({ ...prev, [list.id]: e.target.value }))
+                              }
+                            />
+                            <button
+                              type="submit"
+                              className="rounded border border-gridline px-2 text-xs text-text-secondary"
+                            >
+                              Add
+                            </button>
+                          </form>
                         )}
                       </div>
-                      {!collapsed && (
-                        <ul className="mt-2 ml-5 space-y-2">
-                          {visibleItems.map((item) => (
-                            <li key={item.id} className="flex items-center gap-2 text-base text-text-primary">
-                              <input
-                                type="checkbox"
-                                checked={item.done}
-                                onChange={(e) => setListItemDone(list.id, item.id, e.target.checked)}
-                                className="h-5 w-5 accent-category-transit"
-                              />
-                              <span className={item.done ? "text-text-muted line-through" : undefined}>
-                                {item.text}
-                              </span>
-                            </li>
-                          ))}
-                          {list.items.length === 0 && <p className="text-sm text-text-muted">No items yet.</p>}
-                          {list.items.length > 0 && visibleItems.length === 0 && (
-                            <p className="text-sm text-text-muted">All {doneCount} items done.</p>
-                          )}
-                        </ul>
-                      )}
-                      {!collapsed && (
-                        <form
-                          onSubmit={(e) => addListItem(e, list.id)}
-                          className="mt-2 ml-5 flex gap-2"
-                        >
-                          <input
-                            className="flex-1 rounded border border-gridline bg-transparent p-1 text-xs text-text-primary"
-                            placeholder="Add an item…"
-                            value={listItemText[list.id] ?? ""}
-                            onChange={(e) =>
-                              setListItemText((prev) => ({ ...prev, [list.id]: e.target.value }))
-                            }
-                          />
-                          <button
-                            type="submit"
-                            className="rounded border border-gridline px-2 text-xs text-text-secondary"
-                          >
-                            Add
-                          </button>
-                        </form>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+          </div>
         </div>
-      </div>
+
+        {!albumsAtTop && <TripAlbums tripId={tripId} />}
+        </>
+      )}
     </div>
   );
 }

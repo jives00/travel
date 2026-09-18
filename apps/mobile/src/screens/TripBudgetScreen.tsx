@@ -166,13 +166,6 @@ export function TripBudgetScreen({ route }: TripsScreenProps<"TripBudget">) {
           <Total label="Actual" value={money(grand.actual, home)} />
           <VarianceTotal value={grand.variance} currency={home} />
         </View>
-        {/* Points sit outside the money total on purpose — they have no
-            currency, so folding them into it would be meaningless. */}
-        {budget.points > 0 && (
-          <Text className="mt-1 text-sm text-text-secondary dark:text-text-secondary-dark">
-            plus {budget.points.toLocaleString()} points / miles
-          </Text>
-        )}
         {budget.unresolvedCount > 0 && (
           <View className="mt-3 self-start rounded bg-status-warning/15 px-2 py-1">
             <Text className="text-xs text-status-warning">
@@ -333,9 +326,6 @@ function BudgetLineRow({
           {line.fundingSourceId != null
             ? `${line.estimateHome != null || line.actualHome != null ? " · " : ""}${sourceName(line.fundingSourceId)}`
             : ""}
-          {line.points != null && line.points > 0
-            ? `${line.estimateHome != null || line.actualHome != null || line.fundingSourceId != null ? " · " : ""}${line.points.toLocaleString()} pts`
-            : ""}
         </Text>
       </View>
       <View className="items-end">
@@ -395,7 +385,6 @@ function ExpenseForm({
   const [actCurrency, setActCurrency] = useState(editing?.actual?.currency ?? home);
   const [actualBookingId, setActualBookingId] = useState<number | null>(editing?.actualBookingId ?? null);
   const [fundingSourceId, setFundingSourceId] = useState<number | null>(editing?.fundingSourceId ?? null);
-  const [points, setPoints] = useState(editing?.points != null ? String(editing.points) : "");
   const [notes, setNotes] = useState(editing?.notes ?? "");
 
   function buildBody(): CreateExpenseBody {
@@ -404,9 +393,6 @@ function ExpenseForm({
       label: label.trim(),
       legId,
       fundingSourceId,
-      // Entered with separators ("58,000") — strip them rather than letting
-      // Number() turn the whole thing into NaN.
-      points: points.trim() ? Number(points.replace(/[^0-9]/g, "")) : null,
       notes: notes.trim() || null,
       estimate: estAmount.trim() ? { amount: Number(estAmount), currency: estCurrency.toUpperCase() } : null,
     };
@@ -500,16 +486,6 @@ function ExpenseForm({
           ...fundingSources.map((f) => ({ value: f.id as number | null, label: f.name })),
         ]}
         onChange={setFundingSourceId}
-      />
-      {/* Points are a quantity, not money — record the cash value above and the
-          points burned here. They never enter a home-currency total. */}
-      <TextField
-        className="mb-4"
-        label="Points / miles"
-        value={points}
-        onChangeText={setPoints}
-        keyboardType="number-pad"
-        placeholder="Optional"
       />
 
       <TextField className="mb-4" label="Notes" value={notes} onChangeText={setNotes} multiline placeholder="Optional" />

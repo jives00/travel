@@ -29,6 +29,8 @@ import { Card, Button, SegmentedControl, TextField, Sheet, DateField, STATUS_BAR
 import { TripWeather } from "./TripWeather";
 import { TripItinerary } from "./TripItinerary";
 import { TripMap } from "./TripMap";
+import { TripAlbums } from "./TripAlbums";
+import { TripRecap } from "./TripRecap";
 import { SyncBanner } from "./SyncBanner";
 import { ListCard } from "./ListCard";
 
@@ -52,6 +54,9 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const { data: itineraryItems } = useQuery(travelApi.queries.itineraryQuery(tripId));
   const { data: tripPlaces } = useQuery(travelApi.queries.placesQuery({ tripId }));
   const { data: dismissals } = useQuery(travelApi.queries.readinessDismissalsQuery(tripId));
+  // Only to place the albums section — the section reads the same cached
+  // query, so this is not a second request.
+  const { data: tripLinks } = useQuery(travelApi.queries.tripLinksQuery(tripId));
   const { data: hero } = useQuery({
     ...travelApi.queries.heroImageQuery(tripId),
     enabled: !trip?.heroImageUrl,
@@ -73,6 +78,8 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const [cityEnd, setCityEnd] = useState("");
   const [showingLists, setShowingLists] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
+  // A past trip opens on the recap; this is the way back to the plan.
+  const [showFullTrip, setShowFullTrip] = useState(false);
   const dismissReadiness = useDismissReadiness(tripId);
   const restoreReadiness = useRestoreReadiness(tripId);
   const [collapsedListIds, setCollapsedListIds] = useState<Set<number>>(new Set());
@@ -98,6 +105,10 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   if (!trip) return null;
 
   const sortedLegs = sortLegs(trip.legs);
+  const isPast = trip.status === "past";
+  // An empty albums box on a trip that hasn't happened yet is a footer, not a
+  // headline — it sinks below the map until there's a photo in it.
+  const albumsAtTop = isPast || (tripLinks?.length ?? 0) > 0;
   const today = todayUtcMidnight();
   const countdown = computeCountdown(trip, sortedLegs, bookings ?? [], today);
   const cityChain = sortedLegs.map((l) => l.city).join(" → ");
@@ -167,92 +178,115 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
         </View>
       </View>
 
-      <View className="p-4">
-        {/* Nothing outstanding → no box, rather than a card that says so. The
-            dismissed footer rides inside it, so restoring is reachable again as
-            soon as any nudge is. Mirrors web. */}
-        {readiness.groups.length > 0 && (
-          <Card className="mb-4">
-            <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Trip readiness</Text>
-            {readiness.groups.map((g) => (
-              <View key={g.rule} className="flex-row items-center justify-between py-0.5">
-                <Text
-                  className={`flex-1 text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary dark:text-text-secondary-dark"}`}
-                >
-                  {g.text}
-                </Text>
-                {/* Dismisses the subjects behind the line as it stands now;
-                    a city added later is a new key and warns again. */}
-                <Pressable
-                  onPress={() => dismissReadiness.mutate({ tripId, keys: g.nudges.map((n) => n.key) })}
-                  hitSlop={12}
-                  accessibilityLabel={`Dismiss ${g.text}`}
-                  className="pl-3"
-                >
-                  <Text className="text-base text-text-muted dark:text-text-muted-dark">✕</Text>
-                </Pressable>
-              </View>
-            ))}
-            {readiness.dismissed.length > 0 && (
-              <View className="mt-2 border-t border-gridline pt-2 dark:border-gridline-dark">
-                <Pressable onPress={() => setShowDismissed((v) => !v)} hitSlop={8}>
-                  <Text className="text-xs text-text-muted dark:text-text-muted-dark">
-                    {readiness.dismissed.length} dismissed — {showDismissed ? "hide" : "show"}
-                  </Text>
-                </Pressable>
-                {showDismissed &&
-                  readiness.dismissed.map((n) => (
-                    <View key={n.key} className="flex-row items-center justify-between py-0.5">
-                      <Text className="flex-1 text-xs text-text-muted line-through dark:text-text-muted-dark">
-                        {readinessNudgeLabel(n)}
-                      </Text>
-                      <Pressable
-                        onPress={() => restoreReadiness.mutate({ tripId, keys: [n.key] })}
-                        hitSlop={12}
-                        className="pl-3"
-                      >
-                        <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">Restore</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-              </View>
-            )}
-          </Card>
-        )}
-
-        <TripWeather tripId={tripId} />
-
-        <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Itinerary</Text>
-        <TripItinerary tripId={tripId} legs={sortedLegs} />
-
-        {/* Wraps 2-up rather than sharing one row: with Share added there are up
-            to four buttons, and at flex-1 on a narrow phone "Edit Trip" and
-            "Trip Budget" both wrap to two lines. */}
-        <View className="mt-2 flex-row flex-wrap gap-2">
-          <Button
-            className="w-[48%]"
-            variant="secondary"
-            title="Edit Trip"
-            onPress={() => {
-              setNameDraft(trip.name);
-              setEditing(true);
-            }}
-          />
-          <Button className="w-[48%]" variant="secondary" title="Share" onPress={shareItinerary} />
-          <Button
-            className="w-[48%]"
-            variant="secondary"
-            title="Trip Budget"
-            onPress={() => navigation.navigate("TripBudget", { tripId })}
-          />
-          {linkedLists.length > 0 && (
-            <Button className="w-[48%]" variant="secondary" title="Lists" onPress={() => setShowingLists(true)} />
+      {/* A past trip opens on its recap instead of the plan (plans/todo.md
+          #9a). "Show full trip" is the way back to the itinerary, map and
+          lists — the recap drops lists entirely, so this is their only route. */}
+      {isPast && !showFullTrip ? (
+        <TripRecap
+          tripId={tripId}
+          trip={trip}
+          legs={sortedLegs}
+          onShowFullTrip={() => setShowFullTrip(true)}
+        />
+      ) : (
+        <>
+          {isPast && (
+            <View className="px-4 pt-4">
+              <Button variant="secondary" title="← Back to recap" onPress={() => setShowFullTrip(false)} />
+            </View>
           )}
-        </View>
+        <View className="p-4">
+          {/* Nothing outstanding → no box, rather than a card that says so. The
+              dismissed footer rides inside it, so restoring is reachable again as
+              soon as any nudge is. Mirrors web. */}
+          {readiness.groups.length > 0 && (
+            <Card className="mb-4">
+              <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Trip readiness</Text>
+              {readiness.groups.map((g) => (
+                <View key={g.rule} className="flex-row items-center justify-between py-0.5">
+                  <Text
+                    className={`flex-1 text-sm ${g.tone === "warning" ? "text-status-warning" : "text-text-secondary dark:text-text-secondary-dark"}`}
+                  >
+                    {g.text}
+                  </Text>
+                  {/* Dismisses the subjects behind the line as it stands now;
+                      a city added later is a new key and warns again. */}
+                  <Pressable
+                    onPress={() => dismissReadiness.mutate({ tripId, keys: g.nudges.map((n) => n.key) })}
+                    hitSlop={12}
+                    accessibilityLabel={`Dismiss ${g.text}`}
+                    className="pl-3"
+                  >
+                    <Text className="text-base text-text-muted dark:text-text-muted-dark">✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {readiness.dismissed.length > 0 && (
+                <View className="mt-2 border-t border-gridline pt-2 dark:border-gridline-dark">
+                  <Pressable onPress={() => setShowDismissed((v) => !v)} hitSlop={8}>
+                    <Text className="text-xs text-text-muted dark:text-text-muted-dark">
+                      {readiness.dismissed.length} dismissed — {showDismissed ? "hide" : "show"}
+                    </Text>
+                  </Pressable>
+                  {showDismissed &&
+                    readiness.dismissed.map((n) => (
+                      <View key={n.key} className="flex-row items-center justify-between py-0.5">
+                        <Text className="flex-1 text-xs text-text-muted line-through dark:text-text-muted-dark">
+                          {readinessNudgeLabel(n)}
+                        </Text>
+                        <Pressable
+                          onPress={() => restoreReadiness.mutate({ tripId, keys: [n.key] })}
+                          hitSlop={12}
+                          className="pl-3"
+                        >
+                          <Text className="text-xs text-text-secondary dark:text-text-secondary-dark">Restore</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                </View>
+              )}
+            </Card>
+          )}
 
-        <Text className="mb-2 mt-4 text-xs font-semibold uppercase text-text-muted">Map</Text>
-        <TripMap tripId={tripId} />
-      </View>
+          <TripWeather tripId={tripId} />
+
+          <Text className="mb-2 text-xs font-semibold uppercase text-text-muted">Itinerary</Text>
+          <TripItinerary tripId={tripId} legs={sortedLegs} />
+
+          {/* Wraps 2-up rather than sharing one row: with Share added there are up
+              to four buttons, and at flex-1 on a narrow phone "Edit Trip" and
+              "Trip Budget" both wrap to two lines. */}
+          <View className="mt-2 flex-row flex-wrap gap-2">
+            <Button
+              className="w-[48%]"
+              variant="secondary"
+              title="Edit Trip"
+              onPress={() => {
+                setNameDraft(trip.name);
+                setEditing(true);
+              }}
+            />
+            <Button className="w-[48%]" variant="secondary" title="Share" onPress={shareItinerary} />
+            <Button
+              className="w-[48%]"
+              variant="secondary"
+              title="Trip Budget"
+              onPress={() => navigation.navigate("TripBudget", { tripId })}
+            />
+            {linkedLists.length > 0 && (
+              <Button className="w-[48%]" variant="secondary" title="Lists" onPress={() => setShowingLists(true)} />
+            )}
+          </View>
+
+          {albumsAtTop && <TripAlbums tripId={tripId} />}
+
+          <Text className="mb-2 mt-4 text-xs font-semibold uppercase text-text-muted">Map</Text>
+          <TripMap tripId={tripId} />
+
+          {!albumsAtTop && <TripAlbums tripId={tripId} />}
+        </View>
+        </>
+      )}
 
       {/* Edit sheet */}
       <Sheet visible={editing} onClose={() => setEditing(false)}>

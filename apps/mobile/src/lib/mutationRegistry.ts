@@ -31,6 +31,7 @@ import { registerBookingMutations } from "./offlineMutations/bookings";
 import { registerExpenseMutations } from "./offlineMutations/expenses";
 import { registerWishlistMutations } from "./offlineMutations/wishlist";
 import { registerDayNoteMutations } from "./offlineMutations/dayNotes";
+import { registerTripLinkMutations } from "./offlineMutations/tripLinks";
 import { registerReadinessMutations } from "./offlineMutations/readiness";
 
 // Phase B — Trips
@@ -53,5 +54,7 @@ registerWishlistMutations();
 registerDayNoteMutations();
 // Trip readiness — dismissed nudges
 registerReadinessMutations();
+// Photo albums and other links out
+registerTripLinkMutations();
 
 export {};

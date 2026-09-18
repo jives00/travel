@@ -29,7 +29,6 @@ export interface BookingFormState {
   price: string;
   currency: string;
   fundingSourceId: string;
-  points: string;
   legId: string;
   placeId: string;
   address: string;
@@ -50,7 +49,6 @@ export const EMPTY_FORM: BookingFormState = {
   price: "",
   currency: "",
   fundingSourceId: "",
-  points: "",
   legId: "",
   placeId: "",
   address: "",
@@ -79,9 +77,6 @@ export function formToUpdateBody(form: BookingFormState): UpdateBookingBody {
     price: form.price ? Number(form.price) : null,
     currency: form.currency.trim() || null,
     fundingSourceId: form.fundingSourceId ? Number(form.fundingSourceId) : null,
-    // Points are entered with separators ("58,000") — strip them rather than
-    // letting Number() turn the whole thing into NaN.
-    points: form.points.trim() ? Number(form.points.replace(/[^0-9]/g, "")) : null,
     legId: form.legId ? Number(form.legId) : null,
     // A hotel's own address replaces a library-place link (the two are
     // mutually exclusive there); every other type can carry both — a linked
@@ -121,7 +116,6 @@ export function bookingToForm(booking: Booking): BookingFormState {
     price: booking.price != null ? String(booking.price) : "",
     currency: booking.currency ?? "",
     fundingSourceId: booking.fundingSourceId != null ? String(booking.fundingSourceId) : "",
-    points: booking.points != null ? String(booking.points) : "",
     legId: booking.legId != null ? String(booking.legId) : "",
     placeId: booking.placeId != null ? String(booking.placeId) : "",
     address: booking.address ?? "",
@@ -383,20 +377,11 @@ export function BookingFields({
         />
       </div>
 
-      <div className="flex gap-2">
-        <FundingSourceSelect
-          className="flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
-          value={form.fundingSourceId}
-          onChange={(fundingSourceId) => onChange({ ...form, fundingSourceId })}
-        />
-        <input
-          className="flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
-          placeholder="Points / miles (optional)"
-          inputMode="numeric"
-          value={form.points}
-          onChange={(e) => onChange({ ...form, points: e.target.value })}
-        />
-      </div>
+      <FundingSourceSelect
+        className="w-full rounded border border-gridline bg-transparent p-2 text-text-primary"
+        value={form.fundingSourceId}
+        onChange={(fundingSourceId) => onChange({ ...form, fundingSourceId })}
+      />
 
       <div className="flex gap-2">
         <select

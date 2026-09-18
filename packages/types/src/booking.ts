@@ -18,7 +18,6 @@ export const Booking = z.object({
   // A priced booking is a budget line in its own right (no `expenses` row), so
   // it carries the same funding fields an expense line does — see migration 035.
   fundingSourceId: z.number().int().nullable(),
-  points: z.number().int().nullable(),
   placeId: z.number().int().nullable(),
   // A booking's own location, independent of `placeId` — no library Place
   // record required just to plot something like a hotel on the map.
@@ -45,7 +44,6 @@ export const CreateBookingBody = z.object({
   price: z.number().optional(),
   currency: z.string().length(3).optional(),
   fundingSourceId: z.number().int().optional(),
-  points: z.number().int().nonnegative().optional(),
   placeId: z.number().int().optional(),
   address: z.string().optional(),
   lat: z.number().optional(),
@@ -72,7 +70,6 @@ export const UpdateBookingBody = z.object({
   price: z.number().nullish(),
   currency: z.string().length(3).nullish(),
   fundingSourceId: z.number().int().nullish(),
-  points: z.number().int().nonnegative().nullish(),
   placeId: z.number().int().nullish(),
   address: z.string().nullish(),
   lat: z.number().nullish(),

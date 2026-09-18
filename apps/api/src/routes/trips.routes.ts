@@ -4,7 +4,8 @@ import { computeTripStatus, todayUtcMidnight } from "@travel/core";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import { pingCityPhotoDownload, searchCityPhoto, searchCityPhotoOptions } from "../services/unsplash.client";
-import { FORECAST_DAYS, geocodeCity, getCityForecast, type CityForecast } from "../services/weather.client";
+import { FORECAST_DAYS, getCityForecast, type CityForecast } from "../services/weather.client";
+import { backfillLegGeo } from "../services/legGeo";
 
 function userId(request: FastifyRequest): number {
   return (request.user as { sub: number }).sub;
@@ -21,6 +22,10 @@ interface LegRow {
   lodgingPlaceId: number | null;
   currency: string | null;
   timezone: string | null;
+  lat: number | null;
+  lng: number | null;
+  country: string | null;
+  countryCode: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -54,6 +59,7 @@ const LEG_SELECT = `
   SELECT id, trip_id AS tripId, sort_order AS sortOrder, city,
          start_date AS startDate, end_date AS endDate, day_count AS dayCount,
          lodging_place_id AS lodgingPlaceId, currency, timezone,
+         lat, lng, country, country_code AS countryCode,
          created_at AS createdAt, updated_at AS updatedAt
   FROM legs
 `;
@@ -63,29 +69,10 @@ const LEG_SELECT = `
  * Mirrors compareLegs in @travel/core, which the clients sort their copies with. */
 const LEG_ORDER = "ORDER BY start_date IS NULL, start_date, end_date IS NULL, end_date, sort_order";
 
-/** Self-healing cache, same shape as the legs.lat/lng backfill in
- * map.routes.ts: legs written before migration 032 have no zone, and legs.
- * routes only resolves one at write time. Lookups run in parallel so a trip
- * with unbackfilled legs costs one round trip, once — after that the column is
- * set and this is a no-op. A failed lookup stays null and is retried next read.
- */
-async function backfillLegTimezones(legs: LegRow[]): Promise<void> {
-  const missing = legs.filter((leg) => leg.timezone == null);
-  if (missing.length === 0) return;
-  await Promise.all(
-    missing.map(async (leg) => {
-      const geo = await geocodeCity(leg.city).catch(() => null);
-      if (!geo?.timezone) return;
-      leg.timezone = geo.timezone;
-      await getPool().query("UPDATE legs SET timezone = ? WHERE id = ?", [geo.timezone, leg.id]);
-    }),
-  );
-}
-
 async function legsForTrip(tripId: number): Promise<LegRow[]> {
   const [rows] = await getPool().query(`${LEG_SELECT} WHERE trip_id = ? ${LEG_ORDER}`, [tripId]);
   const legs = rows as LegRow[];
-  await backfillLegTimezones(legs);
+  await backfillLegGeo(legs);
   return legs;
 }
 

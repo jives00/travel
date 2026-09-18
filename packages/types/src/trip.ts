@@ -18,6 +18,14 @@ export const Leg = z.object({
   // city name, not user-entered. Null until it's been looked up (legs created
   // before migration 032 backfill on first read).
   timezone: z.string().nullable(),
+  // Coordinates (024) and country (037) for the same city, from the same
+  // geocoding lookup that fills `timezone` — the map overview needs the first,
+  // the recap's country count and route line need both. Null means "not looked
+  // up yet", and every reader has to tolerate that rather than assume.
+  lat: z.number().nullable(),
+  lng: z.number().nullable(),
+  country: z.string().nullable(),
+  countryCode: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -97,3 +105,21 @@ export const ReorderLegsBody = z.object({
   legIdsInOrder: z.array(z.number().int()).min(1),
 });
 export type ReorderLegsBody = z.infer<typeof ReorderLegsBody>;
+
+/** What the weather actually was for one city, summarised — the recap's
+ * replacement for a forecast that means nothing once a trip is over. Cached
+ * server-side per leg (migration 037), because past weather never changes.
+ *
+ * `isComplete` false means the archive hadn't filled in every day of the range
+ * yet — the summary still renders, it just isn't kept. */
+export const LegWeather = z.object({
+  legId: z.number().int(),
+  city: z.string(),
+  avgHighF: z.number(),
+  avgLowF: z.number(),
+  dominantCondition: z.string(),
+  precipDays: z.number().int(),
+  dayCount: z.number().int(),
+  isComplete: z.boolean(),
+});
+export type LegWeather = z.infer<typeof LegWeather>;

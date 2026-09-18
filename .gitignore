@@ -16,3 +16,7 @@ apps/mobile/android/
 
 # misc
 .DS_Store
+
+# Uploaded link thumbnails (UPLOAD_DIR) — bind-mounted in the container,
+# a local folder in dev. Never committed.
+apps/api/uploads/

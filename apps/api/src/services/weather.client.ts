@@ -51,8 +51,17 @@ function conditionFromWmoCode(code: number, precipProbability: number | null): s
 
 interface GeocodeResult {
   // Open-Meteo returns an IANA `timezone` on every geocoding hit, so the app
-  // needs no separate timezone API (and no key) to resolve a city's zone.
-  results?: { latitude: number; longitude: number; name: string; timezone?: string }[];
+  // needs no separate timezone API (and no key) to resolve a city's zone. The
+  // same response carries `country` and `country_code` — that's what makes the
+  // recap's country count free (migration 037).
+  results?: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    timezone?: string;
+    country?: string;
+    country_code?: string;
+  }[];
 }
 
 interface ForecastResponse {
@@ -69,15 +78,27 @@ interface ForecastResponse {
  * free geocoding endpoint — no API key required. Also used to lazily backfill
  * legs.lat/lng for the /map overview (see map.routes.ts) and legs.timezone for
  * calendar export (see trips.routes.ts). */
-export async function geocodeCity(
-  name: string,
-): Promise<{ lat: number; lng: number; name: string; timezone: string | null } | null> {
+export async function geocodeCity(name: string): Promise<{
+  lat: number;
+  lng: number;
+  name: string;
+  timezone: string | null;
+  country: string | null;
+  countryCode: string | null;
+} | null> {
   const geoRes = await fetch(`${GEOCODE_BASE}?name=${encodeURIComponent(name)}&count=1`);
   if (!geoRes.ok) return null;
   const geo = (await geoRes.json()) as GeocodeResult;
   const match = geo.results?.[0];
   if (!match) return null;
-  return { lat: match.latitude, lng: match.longitude, name: match.name, timezone: match.timezone ?? null };
+  return {
+    lat: match.latitude,
+    lng: match.longitude,
+    name: match.name,
+    timezone: match.timezone ?? null,
+    country: match.country ?? null,
+    countryCode: match.country_code ?? null,
+  };
 }
 
 export async function getCityForecast(city: string): Promise<CityForecast | null> {
@@ -105,4 +126,110 @@ export async function getCityForecast(city: string): Promise<CityForecast | null
   }));
 
   return { city: match.name, days };
+}
+
+const ARCHIVE_BASE = "https://archive-api.open-meteo.com/v1/archive";
+
+/** What the weather actually *was* for one city over one date range — the recap's
+ * replacement for a forecast that means nothing once a trip is over. */
+export interface PastWeatherSummary {
+  avgHighF: number;
+  avgLowF: number;
+  dominantCondition: string;
+  /** Days that recorded any measurable precipitation. */
+  precipDays: number;
+  /** Days the provider actually returned data for. */
+  dayCount: number;
+  /** False when the archive returned fewer days than the range asked for —
+   * see migration 037: such a summary is shown but not kept. */
+  isComplete: boolean;
+}
+
+interface ArchiveResponse {
+  daily?: {
+    time: string[];
+    weather_code: (number | null)[];
+    temperature_2m_max: (number | null)[];
+    temperature_2m_min: (number | null)[];
+    precipitation_sum: (number | null)[];
+  };
+}
+
+/** Open-Meteo's ERA5 archive. Takes coordinates rather than a city name because
+ * legs now store lat/lng (024) — geocoding again per leg would be a wasted call.
+ *
+ * Two deliberate differences from the forecast path. The archive carries **no**
+ * `precipitation_probability_max` (the field comes back all-null), so the
+ * condition is bucketed with a null probability — the low-probability downgrade
+ * simply never fires on past data, which is right: it either rained or it
+ * didn't. And a precip *day* is counted from `precipitation_sum`, the only
+ * measurement the archive actually has. */
+export async function getPastWeatherSummary(
+  lat: number,
+  lng: number,
+  startDate: string,
+  endDate: string,
+  expectedDays: number,
+): Promise<PastWeatherSummary | null> {
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lng),
+    start_date: startDate,
+    end_date: endDate,
+    daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum",
+    temperature_unit: "fahrenheit",
+    timezone: "auto",
+  });
+  const res = await fetch(`${ARCHIVE_BASE}?${params.toString()}`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as ArchiveResponse;
+  const daily = data.daily;
+  if (!daily) return null;
+
+  // Index by position within this one response only — never across cities. The
+  // /:id/weather route got exactly this wrong once by matching days positionally
+  // between different cities (fixed 2026-09-13, 07b0e5d).
+  const highs: number[] = [];
+  const lows: number[] = [];
+  const conditions: string[] = [];
+  let precipDays = 0;
+
+  for (let i = 0; i < daily.time.length; i += 1) {
+    const high = daily.temperature_2m_max[i];
+    const low = daily.temperature_2m_min[i];
+    // A day the archive hasn't filled in yet comes back null — skip it rather
+    // than averaging a zero into the trip.
+    if (high == null || low == null) continue;
+    highs.push(high);
+    lows.push(low);
+    const code = daily.weather_code[i];
+    if (code != null) conditions.push(conditionFromWmoCode(code, null));
+    if ((daily.precipitation_sum[i] ?? 0) > 0) precipDays += 1;
+  }
+
+  if (highs.length === 0) return null;
+
+  // Most frequent condition; a tie goes to whichever occurred first, so the
+  // result is stable rather than dependent on object key order.
+  const counts = new Map<string, number>();
+  for (const c of conditions) counts.set(c, (counts.get(c) ?? 0) + 1);
+  let dominantCondition = conditions[0] ?? "Unknown";
+  let best = 0;
+  for (const c of conditions) {
+    const n = counts.get(c)!;
+    if (n > best) {
+      best = n;
+      dominantCondition = c;
+    }
+  }
+
+  const avg = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+  return {
+    avgHighF: avg(highs),
+    avgLowF: avg(lows),
+    dominantCondition,
+    precipDays,
+    dayCount: highs.length,
+    isComplete: highs.length >= expectedDays,
+  };
 }

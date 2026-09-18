@@ -40,7 +40,6 @@ export function BookingForm({
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("");
   const [fundingSourceId, setFundingSourceId] = useState<number | null>(null);
-  const [points, setPoints] = useState("");
   const [legId, setLegId] = useState<number | null>(defaultLegId ?? null);
   const [address, setAddress] = useState("");
   const [lat, setLat] = useState<number | null>(null);
@@ -57,9 +56,6 @@ export function BookingForm({
       price: price.trim() ? Number(price) : undefined,
       currency: currency.trim().length === 3 ? currency.trim().toUpperCase() : undefined,
       fundingSourceId: fundingSourceId ?? undefined,
-      // Entered with separators ("58,000") — strip them rather than letting
-      // Number() turn the whole thing into NaN.
-      points: points.trim() ? Number(points.replace(/[^0-9]/g, "")) : undefined,
       legId: legId ?? undefined,
       address: address || undefined,
       lat: lat ?? undefined,
@@ -100,15 +96,6 @@ export function BookingForm({
           ...(fundingSources ?? []).map((f) => ({ value: f.id as number | null, label: f.name })),
         ]}
         onChange={setFundingSourceId}
-      />
-      {/* A quantity, not money: points never enter a home-currency total. */}
-      <TextField
-        className="mb-3"
-        label="Points / miles"
-        value={points}
-        onChangeText={setPoints}
-        keyboardType="number-pad"
-        placeholder="Optional"
       />
 
       {legs.length > 0 && (

@@ -8,6 +8,11 @@ services:
     ports:
       - "3008:3008"
     env_file: .env
+    environment:
+      # Uploaded photo-album thumbnails (trip_links). Inside the bind mount
+      # below, so they survive a redeploy — the app defaults to this path, but
+      # naming it here keeps the coupling to the volume visible.
+      UPLOAD_DIR: /app/apps/api/uploads/link-images
     volumes:
       - /volume2/docker/travel/uploads:/app/apps/api/uploads
     networks: [shared-db]

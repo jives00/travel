@@ -15,6 +15,11 @@ export class ApiError extends Error {
 export interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
+  /** A multipart upload. Mutually exclusive with `body`: the platform sets its
+   * own `Content-Type` (with the boundary) and the payload is sent as-is rather
+   * than JSON-stringified. Also exempt from the request timeout — a photo over
+   * a slow Tailscale hop legitimately takes longer than an API call. */
+  formData?: FormData;
   query?: Record<string, string | number | boolean | undefined>;
   /** "blob" for binary downloads (the KML export zip); JSON otherwise. */
   responseType?: "json" | "blob";
@@ -68,24 +73,31 @@ export function createApiClient(config: ApiClientConfig) {
     const token = config.tokenStore.getAccessToken();
 
     const headers: Record<string, string> = {};
+    // Never set Content-Type for FormData — the runtime has to write it itself
+    // so it can include the multipart boundary, and overriding it produces a
+    // body the server cannot parse.
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const res = await fetchWithTimeout(url, {
-      method: options.method ?? "GET",
-      headers,
-      credentials: "include",
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    });
+    const payload = options.formData ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined);
+    const send = (h: Record<string, string>) =>
+      options.formData
+        ? fetch(url, { method: options.method ?? "GET", headers: h, credentials: "include", body: payload })
+        : fetchWithTimeout(url, {
+            method: options.method ?? "GET",
+            headers: h,
+            credentials: "include",
+            body: payload,
+          });
+
+    const res = await send(headers);
 
     if (res.status === 401 && !NO_RETRY_PATHS.has(path) && token) {
       const newToken = await config.refreshAccessToken();
-      const retryRes = await fetchWithTimeout(url, {
-        method: options.method ?? "GET",
-        headers: { ...headers, Authorization: `Bearer ${newToken}` },
-        credentials: "include",
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      });
+      // A FormData body is a one-shot stream in some runtimes, so a retry has to
+      // be given the same object rather than a consumed one — the caller builds
+      // it fresh per call, which keeps this safe.
+      const retryRes = await send({ ...headers, Authorization: `Bearer ${newToken}` });
       return handleResponse<T>(retryRes, path, options.responseType);
     }
 

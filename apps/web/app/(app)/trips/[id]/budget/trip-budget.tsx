@@ -277,13 +277,6 @@ export function TripBudget({ tripId }: { tripId: number }) {
             </div>
           </div>
         </div>
-        {/* Points sit outside the money total on purpose — they have no
-            currency, so folding them into it would be meaningless. */}
-        {budget.points > 0 && (
-          <div className="mt-2 text-sm text-text-secondary">
-            plus {budget.points.toLocaleString()} points / miles
-          </div>
-        )}
         {budget.unresolvedCount > 0 && (
           <div className="mt-4 inline-flex items-center gap-2 rounded bg-status-warning/15 px-3 py-1 text-sm text-status-warning">
             <span className="material-symbols-outlined text-base" aria-hidden="true">
@@ -614,12 +607,6 @@ function BudgetLineRow({
               {sourceName(line.fundingSourceId)}
             </span>
           )}
-          {line.points != null && line.points > 0 && (
-            <span>
-              {(line.estimateHome != null || line.actualHome != null || line.fundingSourceId != null) && " · "}
-              {line.points.toLocaleString()} pts
-            </span>
-          )}
         </div>
       </div>
       <div className="text-right">
@@ -656,7 +643,6 @@ interface FormState {
   actCurrency: string;
   actualBookingId: string;
   fundingSourceId: string;
-  points: string;
   notes: string;
 }
 
@@ -672,7 +658,6 @@ function expenseToForm(e: Expense, home: string): FormState {
     actCurrency: e.actual?.currency ?? home,
     actualBookingId: e.actualBookingId != null ? String(e.actualBookingId) : "",
     fundingSourceId: e.fundingSourceId != null ? String(e.fundingSourceId) : "",
-    points: e.points != null ? String(e.points) : "",
     notes: e.notes ?? "",
   };
 }
@@ -708,7 +693,6 @@ function ExpenseForm({
           actCurrency: home,
           actualBookingId: "",
           fundingSourceId: "",
-          points: "",
           notes: "",
         },
   );
@@ -722,9 +706,6 @@ function ExpenseForm({
       label: form.label.trim(),
       legId: form.legId ? Number(form.legId) : null,
       fundingSourceId: form.fundingSourceId ? Number(form.fundingSourceId) : null,
-      // Entered with separators ("58,000") — strip them rather than letting
-      // Number() turn the whole thing into NaN.
-      points: form.points.trim() ? Number(form.points.replace(/[^0-9]/g, "")) : null,
       notes: form.notes.trim() || null,
       estimate: form.estAmount ? { amount: Number(form.estAmount), currency: form.estCurrency } : null,
     };
@@ -877,25 +858,13 @@ function ExpenseForm({
 
         <div>
           <label className="text-xs uppercase text-text-muted">Funded by</label>
-          <div className="mt-1 flex gap-2">
+          <div className="mt-1">
             <FundingSourceSelect
               className={inputClass}
               value={form.fundingSourceId}
               onChange={(fundingSourceId) => set({ fundingSourceId })}
             />
-            <input
-              className={inputClass}
-              placeholder="Points / miles"
-              inputMode="numeric"
-              value={form.points}
-              onChange={(e) => set({ points: e.target.value })}
-            />
           </div>
-          {/* Points are a quantity, not money — record the cash value the
-              booking would have cost above, and the points burned here. */}
-          <p className="mt-1 text-xs text-text-muted">
-            Points are tracked separately and never added to the money totals.
-          </p>
         </div>
 
         <textarea

@@ -42,7 +42,6 @@ interface ExpenseRow {
   actHomeAmount: number | null;
   actualBookingId: number | null;
   fundingSourceId: number | null;
-  points: number | null;
   homeCurrency: string;
   placeId: number | null;
   itineraryItemId: number | null;
@@ -55,7 +54,7 @@ const EXPENSE_SELECT = `
   SELECT id, trip_id AS tripId, leg_id AS legId, category, label,
          est_amount AS estAmount, est_currency AS estCurrency, est_fx_rate AS estFxRate, est_home_amount AS estHomeAmount,
          act_amount AS actAmount, act_currency AS actCurrency, act_fx_rate AS actFxRate, act_home_amount AS actHomeAmount,
-         actual_booking_id AS actualBookingId, funding_source_id AS fundingSourceId, points,
+         actual_booking_id AS actualBookingId, funding_source_id AS fundingSourceId,
          home_currency AS homeCurrency,
          place_id AS placeId, itinerary_item_id AS itineraryItemId, notes,
          created_at AS createdAt, updated_at AS updatedAt
@@ -79,7 +78,6 @@ function mapExpense(r: ExpenseRow): Expense {
         : null,
     actualBookingId: r.actualBookingId,
     fundingSourceId: r.fundingSourceId,
-    points: r.points,
     homeCurrency: r.homeCurrency,
     placeId: r.placeId,
     itineraryItemId: r.itineraryItemId,
@@ -130,7 +128,6 @@ interface BookingRow {
   price: number | null;
   currency: string | null;
   fundingSourceId: number | null;
-  points: number | null;
 }
 
 export async function expensesRoutes(app: FastifyInstance): Promise<void> {
@@ -176,9 +173,9 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
          (trip_id, leg_id, category, label,
           est_amount, est_currency, est_fx_rate, est_home_amount,
           act_amount, act_currency, act_fx_rate, act_home_amount,
-          actual_booking_id, funding_source_id, points,
+          actual_booking_id, funding_source_id,
           home_currency, place_id, itinerary_item_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         request.params.tripId,
         body.legId ?? null,
@@ -188,7 +185,6 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         act.amount, act.currency, act.fxRate, act.homeAmount,
         linkedBooking,
         body.fundingSourceId ?? null,
-        body.points ?? null,
         homeCurrency,
         body.placeId ?? null,
         body.itineraryItemId ?? null,
@@ -237,7 +233,6 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
       if (body.itineraryItemId !== undefined) set("itinerary_item_id", body.itineraryItemId);
       if (body.notes !== undefined) set("notes", body.notes);
       if (body.fundingSourceId !== undefined) set("funding_source_id", body.fundingSourceId);
-      if (body.points !== undefined) set("points", body.points);
 
       try {
         if (body.estimate !== undefined) {
@@ -309,7 +304,7 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
     ]);
     const [bookingRows] = await getPool().query(
       `SELECT id, leg_id AS legId, type, title, price, currency,
-              funding_source_id AS fundingSourceId, points
+              funding_source_id AS fundingSourceId
          FROM bookings WHERE trip_id = ? AND price IS NOT NULL`,
       [request.params.tripId],
     );
@@ -357,7 +352,6 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         actualHome,
         actualFromBooking,
         fundingSourceId: r.fundingSourceId,
-        points: r.points,
         unresolved: estimateHome != null && actualHome == null,
       });
       inputs.push({
@@ -366,7 +360,6 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         estimatedHome: estimateHome,
         actualHome,
         fundingSourceId: r.fundingSourceId,
-        points: r.points,
       });
     }
 
@@ -391,7 +384,6 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         actualHome,
         actualFromBooking: true,
         fundingSourceId: b.fundingSourceId,
-        points: b.points,
         unresolved: false,
       });
       inputs.push({
@@ -400,7 +392,6 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
         estimatedHome: null,
         actualHome,
         fundingSourceId: b.fundingSourceId,
-        points: b.points,
       });
     }
 
@@ -411,7 +402,6 @@ export async function expensesRoutes(app: FastifyInstance): Promise<void> {
       byCategory: rollup.byCategory as import("@travel/types").BudgetCategoryRollup[],
       byLeg: rollup.byLeg,
       bySource: rollup.bySource,
-      points: rollup.points,
       unresolvedCount: rollup.unresolvedCount,
       lines,
     } satisfies import("@travel/types").BudgetSummary;
