@@ -64,3 +64,12 @@ export const UpdateTripLinkBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 export type UpdateTripLinkBody = z.infer<typeof UpdateTripLinkBody>;
+
+/** Reorder body — the full list of ids in the order they should appear, the
+ * same shape as `ReorderLegsBody`. Sending positions rather than a single
+ * moved-id keeps the server from having to reconstruct intent, and makes the
+ * write idempotent. */
+export const ReorderTripLinksBody = z.object({
+  linkIdsInOrder: z.array(z.number().int()).min(1),
+});
+export type ReorderTripLinksBody = z.infer<typeof ReorderTripLinksBody>;

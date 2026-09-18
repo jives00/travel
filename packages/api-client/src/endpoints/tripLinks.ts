@@ -12,6 +12,12 @@ export function createTripLinksEndpoints(request: RequestFn) {
       request<TripLink>(`/api/trips/${tripId}/links/${linkId}`, { method: "PATCH", body }),
     remove: (tripId: number, linkId: number) =>
       request<void>(`/api/trips/${tripId}/links/${linkId}`, { method: "DELETE" }),
+    /** Whole list in its new order; resolves to the reordered rows. */
+    reorder: (tripId: number, linkIdsInOrder: number[]) =>
+      request<TripLink[]>(`/api/trips/${tripId}/links/reorder`, {
+        method: "POST",
+        body: { linkIdsInOrder },
+      }),
     /** Upload (or replace) the thumbnail — the only way a link gets one. Takes a
      * ready-made FormData so each platform can append whatever its runtime calls
      * a file (a `File` on web, a `{ uri, name, type }` shape on RN). */

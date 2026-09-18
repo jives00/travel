@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ResultSetHeader } from "mysql2";
-import { CreateTripLinkBody, UpdateTripLinkBody } from "@travel/types";
+import { CreateTripLinkBody, ReorderTripLinksBody, UpdateTripLinkBody } from "@travel/types";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
 import {
@@ -113,6 +113,45 @@ export async function tripLinksRoutes(app: FastifyInstance): Promise<void> {
       return row;
     },
   );
+
+  /** Drag-and-drop reordering. Mirrors `/legs/reorder`: the client sends the
+   * whole list in its new order and each row's `sort_order` becomes its index,
+   * so the write is idempotent and the server never has to infer what moved.
+   * Wrapped in a transaction — a half-applied reorder would leave two cards
+   * claiming the same slot, and `ORDER BY sort_order, id` would then resolve it
+   * arbitrarily. */
+  app.post<{ Params: { tripId: string } }>("/:tripId/links/reorder", auth, async (request, reply) => {
+    if (!(await assertOwnsTrip(request.params.tripId, userId(request))))
+      return reply.code(404).send({ error: "not found" });
+
+    const parsed = ReorderTripLinksBody.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid body" });
+
+    const conn = await getPool().getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const [index, linkId] of parsed.data.linkIdsInOrder.entries()) {
+        // The trip_id predicate is what stops an id from another trip being
+        // renumbered into this one.
+        await conn.query("UPDATE trip_links SET sort_order = ? WHERE id = ? AND trip_id = ?", [
+          index,
+          linkId,
+          request.params.tripId,
+        ]);
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+
+    const [rows] = await getPool().query(`${LINK_SELECT} WHERE trip_id = ? ORDER BY sort_order, id`, [
+      request.params.tripId,
+    ]);
+    return rows;
+  });
 
   /** Upload or replace the thumbnail. The only way a link ever gets one. */
   app.post<{ Params: { tripId: string; linkId: string } }>(

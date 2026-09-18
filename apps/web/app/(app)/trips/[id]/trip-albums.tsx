@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TripLink } from "@travel/types";
 import { travelApi } from "@/lib/api";
@@ -27,7 +27,76 @@ export function TripAlbums({ tripId, expectedCount = 0 }: { tripId: number; expe
   const { data: links, isPending } = useQuery(travelApi.queries.tripLinksQuery(tripId));
   const [editing, setEditing] = useState<TripLink | "new" | null>(null);
 
-  const rows = links ?? [];
+  // Local copy so a drag can reorder instantly; the server call follows. Kept in
+  // sync with the query except while a drag is actually in progress, so an
+  // unrelated refetch can't yank a card out from under the pointer.
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [order, setOrder] = useState<number[] | null>(null);
+  // Where the card would land, as an *insertion* index (0..rows.length) rather
+  // than a target card — that's what the drop line draws between, and it's the
+  // only way to express "after the last one".
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const [reorderFailed, setReorderFailed] = useState(false);
+
+  const serverRows = links ?? [];
+  // Apply the local order, then append anything the server knows about that it
+  // doesn't mention — otherwise an album created while a drag order was still
+  // pending would simply not render.
+  const rows =
+    order === null
+      ? serverRows
+      : [
+          ...(order.map((id) => serverRows.find((l) => l.id === id)).filter(Boolean) as TripLink[]),
+          ...serverRows.filter((l) => !order.includes(l.id)),
+        ];
+
+  const reorder = useMutation({
+    mutationFn: (ids: number[]) => travelApi.tripLinks.reorder(tripId, ids),
+    onSuccess: (rowsBack) => {
+      queryClient.setQueryData(["tripLinks", tripId], rowsBack);
+      // Drop the local override only once the server's order is in the cache,
+      // so the cards never flick back to their old positions in between.
+      setOrder(null);
+    },
+    // Say so rather than silently snapping back — a revert with no explanation
+    // is indistinguishable from the drag never having worked.
+    onError: () => {
+      setOrder(null);
+      setReorderFailed(true);
+    },
+  });
+
+  function endDrag() {
+    setDragId(null);
+    setDropAt(null);
+  }
+
+  /** `at` is an insertion index into the current row order. */
+  function dropInto(at: number) {
+    if (dragId === null) {
+      endDrag();
+      return;
+    }
+    const ids = rows.map((l) => l.id);
+    const from = ids.indexOf(dragId);
+    if (from === -1) {
+      endDrag();
+      return;
+    }
+    // Removing the dragged card first shifts everything after it left by one,
+    // so an insertion point beyond it has to come back by one too.
+    const to = from < at ? at - 1 : at;
+    if (to === from) {
+      endDrag();
+      return;
+    }
+    ids.splice(from, 1);
+    ids.splice(to, 0, dragId);
+    setOrder(ids);
+    setReorderFailed(false);
+    endDrag();
+    reorder.mutate(ids);
+  }
   // `expectedCount` comes from the trip payload, which has already loaded by the
   // time anything renders — so the section can hold exactly the right amount of
   // space from the first paint. Without it the box arrived a second late and
@@ -57,51 +126,107 @@ export function TripAlbums({ tripId, expectedCount = 0 }: { tripId: number; expe
           No albums linked yet — add a share link and a picture for the card.
         </p>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-1">
-          {rows.map((link) => (
-            <div key={link.id} className="group w-[336px] shrink-0">
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="block overflow-hidden rounded border border-gridline"
+        <div
+          className="flex items-start gap-1 overflow-x-auto pb-1"
+          // Leaving the strip entirely clears the line, so it never lingers
+          // pointing at a slot the pointer has moved away from.
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dropAt !== null) dropInto(dropAt);
+            else endDrag();
+          }}
+        >
+          {rows.map((link, index) => (
+            <Fragment key={link.id}>
+              <DropLine active={dragId !== null && dropAt === index} />
+              <div
+                draggable
+                onDragStart={(e) => {
+                  setDragId(link.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  // Firefox refuses to start a drag unless something is set.
+                  e.dataTransfer.setData("text/plain", String(link.id));
+                }}
+                onDragEnd={endDrag}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  // Past the midpoint means "after this card" — which is how the
+                  // last slot becomes reachable at all.
+                  const box = e.currentTarget.getBoundingClientRect();
+                  setDropAt(e.clientX < box.left + box.width / 2 ? index : index + 1);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const box = e.currentTarget.getBoundingClientRect();
+                  dropInto(e.clientX < box.left + box.width / 2 ? index : index + 1);
+                }}
+                className={`group w-[336px] shrink-0 cursor-grab active:cursor-grabbing ${
+                  dragId === link.id ? "opacity-40" : ""
+                }`}
               >
-                {link.thumbnailUrl ? (
-                  // Deliberately not next/image: these are served by our own API
-                  // from a bind-mounted volume, and the optimizer would buy
-                  // nothing for an upload that is already card-sized.
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={link.thumbnailUrl}
-                    alt=""
-                    className="h-[189px] w-full bg-page object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-[189px] w-full items-center justify-center bg-page text-text-muted">
-                    <span className="material-symbols-outlined" aria-hidden="true">
-                      photo_library
-                    </span>
-                  </div>
-                )}
-              </a>
-              <div className="mt-1 flex items-start justify-between gap-1">
-                <div className="truncate text-base text-text-primary" title={link.label}>
-                  {link.label}
-                </div>
-                <button
-                  onClick={() => setEditing(link)}
-                  aria-label={`Edit ${link.label}`}
-                  className="mt-0.5 text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100"
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  // draggable={false} alone is what hands the drag to the card.
+                  // Do NOT also preventDefault on the anchor's dragstart: that
+                  // cancels the drag the card is trying to start.
+                  draggable={false}
+                  className="block overflow-hidden rounded border border-gridline"
                 >
-                  <span className="material-symbols-outlined text-base" aria-hidden="true">
-                    edit
-                  </span>
-                </button>
+                  {link.thumbnailUrl ? (
+                    // Deliberately not next/image: these are served by our own
+                    // API from a bind-mounted volume, and the optimizer would
+                    // buy nothing for an upload that is already card-sized.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={link.thumbnailUrl}
+                      alt=""
+                      className="h-[189px] w-full bg-page object-cover"
+                      loading="lazy"
+                      draggable={false}
+                    />
+                  ) : (
+                    <div className="flex h-[189px] w-full items-center justify-center bg-page text-text-muted">
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        photo_library
+                      </span>
+                    </div>
+                  )}
+                </a>
+                <div className="mt-1 flex items-start justify-between gap-1">
+                  <div className="truncate text-base text-text-primary" title={link.label}>
+                    {link.label}
+                  </div>
+                  <button
+                    onClick={() => setEditing(link)}
+                    aria-label={`Edit ${link.label}`}
+                    className="mt-0.5 text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100"
+                  >
+                    <span className="material-symbols-outlined text-base" aria-hidden="true">
+                      edit
+                    </span>
+                  </button>
+                </div>
               </div>
-            </div>
+            </Fragment>
           ))}
+          {/* The slot after the last card. Without it there is nowhere to
+              express "move this to the end". */}
+          <DropLine active={dragId !== null && dropAt === rows.length} />
         </div>
+      )}
+
+      {reorderFailed && (
+        <p className="mt-2 text-xs text-status-critical">
+          Couldn&apos;t save the new order — it has been put back.
+        </p>
       )}
 
       {editing && (
@@ -123,6 +248,20 @@ export function TripAlbums({ tripId, expectedCount = 0 }: { tripId: number; expe
         />
       )}
     </section>
+  );
+}
+
+/** The insertion marker. Always in the layout — it only gains width and colour
+ * when it's the live target, so cards never shift sideways as the line moves
+ * between them. */
+function DropLine({ active }: { active: boolean }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`h-[189px] w-1 shrink-0 self-start rounded transition-colors ${
+        active ? "bg-category-transit" : "bg-transparent"
+      }`}
+    />
   );
 }
 
