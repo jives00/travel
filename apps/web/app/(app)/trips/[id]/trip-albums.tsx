@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TripLink } from "@travel/types";
 import { travelApi } from "@/lib/api";
+import { downscaleImage } from "@/lib/downscaleImage";
 import { Modal } from "./itinerary-panels";
 
 const inputClass = "w-full rounded border border-gridline bg-transparent p-2 text-text-primary";
@@ -142,6 +143,9 @@ function AlbumModal({
   const [preview, setPreview] = useState<string | null>(link?.thumbnailUrl ?? null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Shrinking happens at pick time, not save time, so it overlaps with the user
+  // still typing a name — by the time they hit Save there is nothing to wait for.
+  const [preparing, setPreparing] = useState(false);
 
   const remove = useMutation({
     mutationFn: () => travelApi.tripLinks.remove(tripId, link!.id),
@@ -212,7 +216,7 @@ function AlbumModal({
               </div>
             )}
             <label className="cursor-pointer text-sm text-category-transit hover:underline">
-              {preview ? "Choose a different image" : "Choose an image"}
+              {preparing ? "Preparing…" : preview ? "Choose a different image" : "Choose an image"}
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
@@ -223,8 +227,13 @@ function AlbumModal({
                   // change event otherwise.
                   e.target.value = "";
                   if (!picked) return;
-                  setFile(picked);
-                  setPreview(URL.createObjectURL(picked));
+                  setPreparing(true);
+                  void downscaleImage(picked)
+                    .then((prepared) => {
+                      setFile(prepared);
+                      setPreview(URL.createObjectURL(prepared));
+                    })
+                    .finally(() => setPreparing(false));
                 }}
               />
             </label>
@@ -238,7 +247,7 @@ function AlbumModal({
         <div className="flex gap-2">
           <button
             onClick={save}
-            disabled={saving || !label.trim() || !url.trim()}
+            disabled={saving || preparing || !label.trim() || !url.trim()}
             className="rounded bg-category-transit px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save"}
