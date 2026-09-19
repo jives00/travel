@@ -1,7 +1,12 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
-import { LINK_IMAGE_NAME, linkImagePath, MIME_BY_EXTENSION } from "../services/linkImageStore";
+import {
+  backfillLinkImage,
+  LINK_IMAGE_NAME,
+  linkImagePath,
+  MIME_BY_EXTENSION,
+} from "../services/linkImageStore";
 
 /** Serves uploaded link thumbnails.
  *
@@ -22,9 +27,18 @@ export async function linkImagesRoutes(app: FastifyInstance): Promise<void> {
     const { filename } = request.params;
     if (!LINK_IMAGE_NAME.test(filename)) return reply.code(404).send({ error: "not found" });
 
-    const filePath = linkImagePath(filename);
-    const stats = await stat(filePath).catch(() => null);
-    if (!stats?.isFile()) return reply.code(404).send({ error: "not found" });
+    let filePath = linkImagePath(filename);
+    let stats = await stat(filePath).catch(() => null);
+    if (!stats?.isFile()) {
+      // Local dev only (see `LINK_IMAGE_UPSTREAM`): the row came from the shared
+      // NAS database but the bytes only exist on the prod bind mount, so pull
+      // them down once rather than rendering a broken image.
+      const backfilled = await backfillLinkImage(filename);
+      if (!backfilled) return reply.code(404).send({ error: "not found" });
+      stats = await stat(backfilled).catch(() => null);
+      if (!stats?.isFile()) return reply.code(404).send({ error: "not found" });
+      filePath = backfilled;
+    }
 
     const ext = filename.slice(filename.lastIndexOf(".") + 1);
     // The bytes never change — the filename is regenerated on every upload — so

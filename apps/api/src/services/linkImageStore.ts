@@ -60,6 +60,47 @@ export async function storeLinkImage(bytes: Buffer, mime: string): Promise<strin
   return filename;
 }
 
+/** Where a local miss is allowed to look next. Dev only, and unset in
+ * production: local dev shares the NAS MySQL, so a thumbnail uploaded on prod
+ * already has its row here — only the bytes are missing, because uploads are
+ * files on the prod bind mount and nothing copies them down. Point this at the
+ * prod API (`http://100.115.171.80:3008`) and a missing thumbnail fetches
+ * itself once and is cached on local disk. Never set it on the NAS: it would
+ * make the container ask itself for a file it just decided it does not have.
+ *
+ * Read at call time, not module scope, like every other env read in this app.
+ * `server.ts` loads the root `.env` before it imports `./app` — but tsx
+ * transpiles through esbuild, which hoists the imports above that `config()`
+ * call, so anything this module evaluates at load time sees an unset variable.
+ * A lazy read is immune to the ordering. */
+function upstream(): string | null {
+  const value = process.env.LINK_IMAGE_UPSTREAM?.trim();
+  return value ? value.replace(/\/+$/, "") : null;
+}
+
+/** Fetches a missing thumbnail from the upstream API and caches it locally,
+ * returning the path once written. Best-effort in every direction: no upstream
+ * configured, an unreachable NAS, a 404 up there, or a write that fails all
+ * return null and leave the route to answer 404 exactly as before. The filename
+ * has already been matched against `LINK_IMAGE_NAME` by the caller, so it is
+ * safe both to join to a path and to interpolate into the upstream URL. */
+export async function backfillLinkImage(filename: string): Promise<string | null> {
+  const base = upstream();
+  if (!base) return null;
+  try {
+    const response = await fetch(`${base}/api/link-images/${filename}`);
+    if (!response.ok) return null;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length === 0) return null;
+    await mkdir(UPLOAD_DIR, { recursive: true });
+    const filePath = path.join(UPLOAD_DIR, filename);
+    await writeFile(filePath, bytes);
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+
 /** Best-effort: a thumbnail that has already been replaced in the DB must not
  * fail the request just because its old file was already gone. */
 export async function deleteLinkImage(filename: string | null): Promise<void> {
