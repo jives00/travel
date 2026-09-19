@@ -24,6 +24,7 @@ import { listsRoutes } from "./routes/lists.routes";
 import { settingsRoutes } from "./routes/settings.routes";
 import { fundingSourcesRoutes } from "./routes/funding-sources.routes";
 import { mapRoutes } from "./routes/map.routes";
+import { geoRoutes } from "./routes/geo.routes";
 import { wishlistRoutes } from "./routes/wishlist.routes";
 import { exportRoutes } from "./routes/export.routes";
 
@@ -72,6 +73,7 @@ export function buildApp(): FastifyInstance {
   void app.register(settingsRoutes, { prefix: "/api/settings" });
   void app.register(fundingSourcesRoutes, { prefix: "/api/funding-sources" });
   void app.register(mapRoutes, { prefix: "/api/map" });
+  void app.register(geoRoutes, { prefix: "/api/geo" }); // /api/geo/cities — leg city picker
   void app.register(wishlistRoutes, { prefix: "/api/wishlist" });
   void app.register(exportRoutes, { prefix: "/api/trips" }); // /api/trips/:tripId/export/*
 

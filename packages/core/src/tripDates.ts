@@ -16,9 +16,12 @@ export function daysBetween(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / 86_400_000);
 }
 
-/** Today's date in the device's local timezone, as "YYYY-MM-DD" — used to
- * backfill an itinerary item's date when it's checked off complete with no
- * date previously set. */
+/** Today's date in the *device's* local timezone, as "YYYY-MM-DD".
+ *
+ * Anything about the trip — which day the calendar calls today, what date an
+ * entry checked off gets stamped with — wants `todayInTripZone` instead: the
+ * device's zone is where the reader is, not where the trip is. This stays the
+ * floor beneath it, and the basis for `todayUtcMidnight`. */
 export function todayDateString(): string {
   return dateToYmd(new Date());
 }

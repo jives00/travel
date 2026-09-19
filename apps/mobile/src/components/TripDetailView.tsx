@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
-import type { Trip } from "@travel/types";
+import type { CityCandidate, Trip } from "@travel/types";
 import {
   computeCountdown,
   buildShareItineraryText,
@@ -25,7 +25,7 @@ import {
   useDeleteLeg,
 } from "../lib/offlineMutations/trips";
 import { useDismissReadiness, useRestoreReadiness } from "../lib/offlineMutations/readiness";
-import { Card, Button, SegmentedControl, TextField, Sheet, DateField, STATUS_BAR_BG } from "./ui";
+import { Card, Button, SegmentedControl, TextField, CityField, Sheet, DateField, STATUS_BAR_BG } from "./ui";
 import { TripWeather } from "./TripWeather";
 import { TripItinerary } from "./TripItinerary";
 import { TripMap } from "./TripMap";
@@ -73,6 +73,10 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
   const [backdropDraft, setBackdropDraft] = useState("");
   const [addingCity, setAddingCity] = useState(false);
   const [cityName, setCityName] = useState("");
+  // Set only when the city was chosen from the search rather than typed — sent
+  // as the leg's `geo` so the server stores that exact place instead of
+  // geocoding the name and hoping.
+  const [cityPick, setCityPick] = useState<CityCandidate | null>(null);
   const [cityStart, setCityStart] = useState("");
   const [cityEnd, setCityEnd] = useState("");
   const [showingLists, setShowingLists] = useState(false);
@@ -389,7 +393,7 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
       {/* Add city */}
       <Sheet visible={addingCity} onClose={() => setAddingCity(false)}>
         <Text className="mb-3 text-lg font-semibold text-text-primary dark:text-text-primary-dark">Add city</Text>
-        <TextField className="mb-3" label="City" value={cityName} onChangeText={setCityName} placeholder="e.g. Barcelona" />
+        <CityField className="mb-3" value={cityName} onChange={setCityName} onPick={setCityPick} picked={cityPick} />
         <View className="mb-4 flex-row gap-2">
           <DateField className="flex-1" label="Start date" value={cityStart} onChange={setCityStart} />
           <DateField className="flex-1" label="End date" value={cityEnd} onChange={setCityEnd} />
@@ -406,7 +410,11 @@ export function TripDetailView({ tripId, onArchived }: { tripId: number; onArchi
               city: cityName.trim(),
               startDate: cityStart || undefined,
               endDate: cityEnd || undefined,
+              // Only when chosen from the search — see CityField. Present means
+              // "this exact place"; absent leaves the server to geocode the name.
+              ...(cityPick ? { geo: cityPick } : {}),
             });
+            setCityPick(null);
             setCityName("");
             setCityStart("");
             setCityEnd("");

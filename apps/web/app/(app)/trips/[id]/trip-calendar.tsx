@@ -145,6 +145,7 @@ function ExtraSection({ title, entries, renderEntry }: { title: string; entries:
 
 export function TripCalendar({
   tripId,
+  today,
   legs,
   entries,
   isVisible,
@@ -154,6 +155,12 @@ export function TripCalendar({
   renderEntry,
 }: {
   tripId: number;
+  /** Today in the *trip's* timezone, from the parent — null until it's known
+   * (before mount), when nothing is treated as past or as today. Not read from
+   * the browser here: in Seville on a laptop still set to US time, 8am Saturday
+   * is Friday night locally, and this view is about what day it is where you
+   * are standing. */
+  today: string | null;
   legs: { id: number; city: string; startDate: string | null; endDate: string | null }[];
   /** Already sorted and privacy-filtered by the parent. */
   entries: Entry[];
@@ -171,17 +178,7 @@ export function TripCalendar({
   const { data: notes } = useQuery(travelApi.queries.dayNotesQuery(tripId));
   const [addingDay, setAddingDay] = useState<TripDay | null>(null);
 
-  // Today, as a date-only string in the viewer's own timezone — compared
-  // against the UTC-normalized day strings the same way everywhere else.
-  const [today, setToday] = useState<string | null>(null);
-  useEffect(() => {
-    const d = new Date();
-    setToday(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
-    );
-  }, []);
-
-  // `today` is null until the mount effect runs, so nothing is treated as past
+  // `today` is null until the parent knows it, so nothing is treated as past
   // until the date is actually known.
   const pastDay = (date: string) => hidePast === true && today != null && date < today;
   const visibleEntry = isVisible ?? (() => true);

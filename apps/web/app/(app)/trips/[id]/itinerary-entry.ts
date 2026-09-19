@@ -69,10 +69,12 @@ export interface Entry {
   // Place/idea entries are checked off via itinerary_items.completed; booking
   // entries are checked off via bookings.completed — same UI, different column.
   completed: boolean;
-  // The day a place/idea was checked off. Never feeds grouping or the category
-  // label — only the date shown on the row and the calendar's day placement, so
-  // checking something off records when it happened without moving it in the
-  // list. Bookings carry their own date on startAt, so this stays null there.
+  // The day a place/idea was checked off, and — once set — the day it shows on
+  // in the row label and the calendar, ahead of scheduledDate (see
+  // itineraryDisplayDate in @travel/core). Never feeds grouping or the category
+  // label, so checking something off records when it happened without moving it
+  // between sections. Bookings carry their own date on startAt, so this stays
+  // null there.
   completedAt: string | null;
   // Which collapsible category section this entry sorts into — see
   // itineraryCategoryLabel in @travel/core (date presence wins over tag/type).

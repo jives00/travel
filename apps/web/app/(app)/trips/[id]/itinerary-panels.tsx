@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Booking, Leg, Place, PlaceTag } from "@travel/types";
+import type { Booking, CityCandidate, Leg, Place, PlaceTag } from "@travel/types";
 import {
   BOOKING_TYPES,
   PLACE_TAGS,
@@ -29,6 +29,7 @@ import {
   type AutocompleteSearchState,
 } from "@/components/autocomplete-search";
 import { entryDisplayDate, type Entry, type LegOption, formatDateRange, formatTime12h, toDateOnlyString } from "./itinerary-entry";
+import { CityPicker, CityPickNote } from "./city-picker";
 
 // Every shared piece of itinerary UI — the modal shell, the entry row, the
 // add/edit dialogs, and the inline place/booking detail panels — so the list
@@ -1405,6 +1406,11 @@ export function LegHeader({
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [city, setCity] = useState(leg.city);
+  // A leg already named "Cordoba" can be re-pointed at the right Córdoba
+  // without renaming it — picking alone rewrites the zone, coordinates and
+  // country, which is exactly the repair path for the ones that resolved to
+  // Argentina and Ohio.
+  const [cityPick, setCityPick] = useState<CityCandidate | null>(null);
   const [startDate, setStartDate] = useState(leg.startDate ? toDateOnlyString(leg.startDate) : "");
   const [endDate, setEndDate] = useState(leg.endDate ? toDateOnlyString(leg.endDate) : "");
   const [dayCount, setDayCount] = useState(String(leg.dayCount ?? 1));
@@ -1417,9 +1423,14 @@ export function LegHeader({
       // not both. Setting dates here is what later lets the trip auto-promote
       // from `dreaming` to `planned` (computed in packages/core, not stored).
       const dateFields = startDate && endDate ? { startDate, endDate } : { dayCount: Number(dayCount) || 1 };
-      const body = { city: city.trim() || leg.city, ...dateFields };
+      const body = {
+        city: city.trim() || leg.city,
+        ...dateFields,
+        ...(cityPick ? { geo: cityPick } : {}),
+      };
       await travelApi.trips.updateLeg(tripId, leg.id, body);
       await queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
+      setCityPick(null);
       setEditing(false);
     } finally {
       setSaving(false);
@@ -1434,11 +1445,15 @@ export function LegHeader({
   if (editing) {
     return (
       <div className="mb-3 space-y-2 rounded border border-category-transit p-2">
-        <input
-          className="w-full rounded border border-gridline bg-transparent p-1 font-medium text-text-primary"
+        <CityPicker
           value={city}
-          onChange={(e) => setCity(e.target.value)}
+          onChange={setCity}
+          onPick={setCityPick}
+          placeholder="City"
+          label="City"
+          inputClassName="w-full rounded border border-gridline bg-transparent p-1 font-medium text-text-primary"
         />
+        <CityPickNote picked={cityPick} fallback={{ country: leg.country, timezone: leg.timezone }} />
         <div className="flex gap-2">
           <label className="flex-1 text-xs text-text-muted">
             Start date

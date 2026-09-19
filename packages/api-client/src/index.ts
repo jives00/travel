@@ -17,6 +17,7 @@ import { createListsEndpoints } from "./endpoints/lists";
 import { createSettingsEndpoints } from "./endpoints/settings";
 import { createFundingSourcesEndpoints } from "./endpoints/fundingSources";
 import { createMapEndpoints } from "./endpoints/map";
+import { createGeoEndpoints } from "./endpoints/geo";
 import { createWishlistEndpoints } from "./endpoints/wishlist";
 
 import { createPlacesQueries } from "./queries/placesQuery";
@@ -32,6 +33,7 @@ import { createListsQueries } from "./queries/listsQuery";
 import { createSettingsQueries } from "./queries/settingsQuery";
 import { createFundingSourcesQueries } from "./queries/fundingSourcesQuery";
 import { createMapQueries } from "./queries/mapQuery";
+import { createGeoQueries } from "./queries/geoQuery";
 import { createWishlistQueries } from "./queries/wishlistQuery";
 
 export * from "./client";
@@ -73,6 +75,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
   const settings = createSettingsEndpoints(request);
   const fundingSources = createFundingSourcesEndpoints(request);
   const map = createMapEndpoints(request);
+  const geo = createGeoEndpoints(request);
   const wishlist = createWishlistEndpoints(request);
 
   return {
@@ -91,6 +94,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
     settings,
     fundingSources,
     map,
+    geo,
     wishlist,
     queries: {
       ...createPlacesQueries(places),
@@ -106,6 +110,7 @@ export function createTravelApi(config: CreateTravelApiConfig) {
       ...createSettingsQueries(settings),
       ...createFundingSourcesQueries(fundingSources),
       ...createMapQueries(map),
+      ...createGeoQueries(geo),
       ...createWishlistQueries(wishlist),
     },
   };

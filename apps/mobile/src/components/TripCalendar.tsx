@@ -3,7 +3,7 @@ import { View, Text, Pressable } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQuery } from "@tanstack/react-query";
 import type { DayNote, Leg } from "@travel/types";
-import { buildTripDays, formatDayHeading, itineraryDisplayDate, todayDateString, type TripDay } from "@travel/core";
+import { buildTripDays, formatDayHeading, itineraryDisplayDate, type TripDay } from "@travel/core";
 import { travelApi } from "../lib/api";
 import { useSetDayNote } from "../lib/offlineMutations/dayNotes";
 import { Card, TextField } from "./ui";
@@ -141,6 +141,7 @@ function ExtraSection({
 
 export function TripCalendar({
   tripId,
+  today,
   legs,
   entries,
   showCompleted,
@@ -148,6 +149,11 @@ export function TripCalendar({
   onAddToDay,
 }: {
   tripId: number;
+  /** Today in the *trip's* timezone, from the caller. Not read from the device
+   * here: in Seville on a phone still set to US time, 8am Saturday is Friday
+   * night locally, and this view is about what day it is where you are
+   * standing. */
+  today: string;
   /** Already sorted by start date by the caller — buildTripDays resolves an
    * overlapping day to the first matching leg. */
   legs: Leg[];
@@ -164,7 +170,6 @@ export function TripCalendar({
 }) {
   const { data: notes } = useQuery(travelApi.queries.dayNotesQuery(tripId));
   const days = useMemo(() => buildTripDays(legs), [legs]);
-  const today = todayDateString();
   const pastDay = (date: string) => showCompleted === false && date < today;
   const show = (e: Entry) => {
     if (showCompleted === false && e.completed) return false;

@@ -58,14 +58,26 @@ export function compareItineraryCategories(a: string, b: string): number {
   return (ai === -1 ? ITINERARY_CATEGORIES.length : ai) - (bi === -1 ? ITINERARY_CATEGORIES.length : bi);
 }
 
-/** The date an itinerary entry sits on in the day-by-day calendar: what the
- * user scheduled, falling back to the day it was checked off. Something
- * visited on a whim was never scheduled, so only completedAt can place it —
- * but that fallback stays out of the list view's grouping, which keeps using
- * scheduledDate so checking an entry off never moves it between sections. */
+/** The date an itinerary entry sits on in the day-by-day calendar: **the day it
+ * was actually checked off, falling back to the day it was planned for.**
+ *
+ * That order round, not the other way: the calendar is the "when did this
+ * happen" view, and once something has happened, the plan is the weaker claim
+ * about it. Segovia was booked for Saturday and done on Friday; filing it under
+ * Saturday showed a day that hadn't started yet already ticked off, and hid the
+ * day it really belongs to. A completed entry that was never scheduled at all
+ * (a place visited on a whim) is placed by the same rule, which is why
+ * `completedAt` exists — see migration 033.
+ *
+ * `completedAt` is cleared when an entry is un-checked, so an entry that still
+ * has one is by definition still complete.
+ *
+ * None of this reaches the list view's *grouping*, which keeps using
+ * scheduledDate (`itineraryCategoryLabel`, `groupFor`) so checking an entry off
+ * never moves it between sections. */
 export function itineraryDisplayDate(entry: {
   scheduledDate: string | null;
   completedAt?: string | null;
 }): string | null {
-  return entry.scheduledDate ?? entry.completedAt ?? null;
+  return entry.completedAt ?? entry.scheduledDate ?? null;
 }

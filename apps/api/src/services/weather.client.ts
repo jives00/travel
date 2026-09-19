@@ -4,6 +4,8 @@
  * daily forecast. Condition bucketing and the low-probability precip downgrade
  * mirror the Weather app's WeatherMapper for a consistent read across apps. */
 
+import type { CityCandidate } from "@travel/types";
+
 const GEOCODE_BASE = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST_BASE = "https://api.open-meteo.com/v1/forecast";
 
@@ -58,6 +60,7 @@ interface GeocodeResult {
     latitude: number;
     longitude: number;
     name: string;
+    admin1?: string;
     timezone?: string;
     country?: string;
     country_code?: string;
@@ -74,10 +77,40 @@ interface ForecastResponse {
   };
 }
 
+/** Every city Open-Meteo can match for a name, best-ranked first, for the
+ * picker to disambiguate — see `CityCandidate` in @travel/types for why a
+ * single answer isn't good enough. Returns [] on any failure: a search box that
+ * finds nothing is a worse outcome than one that errors, but not by much, and
+ * the caller can still type a name and let the server guess.
+ *
+ * `count` is capped — a list nobody scrolls is a list nobody reads. */
+export async function searchCities(name: string, count = 8): Promise<CityCandidate[]> {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return [];
+  const res = await fetch(
+    `${GEOCODE_BASE}?name=${encodeURIComponent(trimmed)}&count=${Math.min(count, 20)}`,
+  ).catch(() => null);
+  if (!res?.ok) return [];
+  const geo = (await res.json().catch(() => null)) as GeocodeResult | null;
+  return (geo?.results ?? []).map((r) => ({
+    name: r.name,
+    admin1: r.admin1 ?? null,
+    country: r.country ?? null,
+    countryCode: r.country_code ?? null,
+    lat: r.latitude,
+    lng: r.longitude,
+    timezone: r.timezone ?? null,
+  }));
+}
+
 /** Resolves a free-text city (or country) name to coordinates via Open-Meteo's
  * free geocoding endpoint — no API key required. Also used to lazily backfill
  * legs.lat/lng for the /map overview (see map.routes.ts) and legs.timezone for
- * calendar export (see trips.routes.ts). */
+ * calendar export (see trips.routes.ts).
+ *
+ * This takes the top hit, which for an ambiguous name is a guess — it stays the
+ * fallback for a leg whose city was typed rather than picked. `searchCities`
+ * above is the path that doesn't guess. */
 export async function geocodeCity(name: string): Promise<{
   lat: number;
   lng: number;

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { CreateLegBody, ReorderLegsBody, UpdateLegBody } from "@travel/types";
 import { authenticate } from "../middleware/auth";
 import { getPool } from "../db";
+import type { CityCandidate } from "@travel/types";
 import { geocodeCity } from "../services/weather.client";
 
 function userId(request: FastifyRequest): number {
@@ -12,6 +13,7 @@ const LEG_SELECT = `
   SELECT id, trip_id AS tripId, sort_order AS sortOrder, city,
          start_date AS startDate, end_date AS endDate, day_count AS dayCount,
          lodging_place_id AS lodgingPlaceId, currency, timezone,
+         lat, lng, country, country_code AS countryCode,
          created_at AS createdAt, updated_at AS updatedAt
   FROM legs
 `;
@@ -21,13 +23,43 @@ const LEG_SELECT = `
  * Mirrors compareLegs in @travel/core, which the clients sort their copies with. */
 const LEG_ORDER = "ORDER BY start_date IS NULL, start_date, end_date IS NULL, end_date, sort_order";
 
-/** A leg's zone follows its city, so it's resolved whenever the city is
- * written rather than asked of the user. Never fatal: a geocode miss or an
- * Open-Meteo outage leaves the column null, and the read path retries the
- * lookup later (see backfillLegTimezones in trips.routes.ts). */
-async function timezoneForCity(city: string): Promise<string | null> {
-  const geo = await geocodeCity(city).catch(() => null);
-  return geo?.timezone ?? null;
+/** Everything a leg derives from where its city *is* — resolved whenever the
+ * city is written rather than asked of the user.
+ *
+ * Two ways in. If the client sends a `geo` (the user picked from the city
+ * search) it is taken verbatim: that is a statement about which Córdoba, and
+ * guessing over the top of it would defeat the picker. Otherwise the name is
+ * geocoded here, which takes the top hit and can be wrong — never fatal, since
+ * a miss or an Open-Meteo outage just leaves the columns null and `backfillLegGeo`
+ * retries on the next read.
+ *
+ * Columns are always returned as a complete set, nulls included, because the
+ * caller writes them on a city *change*: a half-written set would leave the new
+ * city wearing the old one's coordinates, which is how a leg ends up plotted an
+ * ocean away from its own timezone. */
+interface LegGeoColumns {
+  timezone: string | null;
+  lat: number | null;
+  lng: number | null;
+  country: string | null;
+  countryCode: string | null;
+}
+
+async function geoForCity(city: string, picked: CityCandidate | undefined): Promise<LegGeoColumns> {
+  const geo = picked ?? (await geocodeCity(city).catch(() => null));
+  return {
+    timezone: geo?.timezone ?? null,
+    lat: geo?.lat ?? null,
+    lng: geo?.lng ?? null,
+    country: geo?.country ?? null,
+    countryCode: geo?.countryCode ?? null,
+  };
+}
+
+const GEO_COLUMNS = ["timezone", "lat", "lng", "country", "country_code"] as const;
+
+function geoValues(geo: LegGeoColumns): unknown[] {
+  return [geo.timezone, geo.lat, geo.lng, geo.country, geo.countryCode];
 }
 
 async function assertOwnsTrip(tripId: string | number, uid: number): Promise<boolean> {
@@ -51,9 +83,11 @@ export async function legsRoutes(app: FastifyInstance): Promise<void> {
       [request.params.tripId],
     )) as [{ maxOrder: number }[], unknown];
 
+    const geo = await geoForCity(body.city, body.geo);
     const [result] = await getPool().query(
-      `INSERT INTO legs (trip_id, sort_order, city, start_date, end_date, day_count, lodging_place_id, currency, timezone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO legs (trip_id, sort_order, city, start_date, end_date, day_count, lodging_place_id, currency,
+                         ${GEO_COLUMNS.join(", ")})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${GEO_COLUMNS.map(() => "?").join(", ")})`,
       [
         request.params.tripId,
         maxOrder + 1,
@@ -63,7 +97,7 @@ export async function legsRoutes(app: FastifyInstance): Promise<void> {
         body.dayCount ?? null,
         body.lodgingPlaceId ?? null,
         body.currency ?? null,
-        await timezoneForCity(body.city),
+        ...geoValues(geo),
       ],
     );
     const insertId = (result as { insertId: number }).insertId;
@@ -97,15 +131,20 @@ export async function legsRoutes(app: FastifyInstance): Promise<void> {
           params.push(body[key]);
         }
       }
-      if (fields.length === 0) return reply.code(400).send({ error: "no fields to update" });
-
-      // Renaming the city moves the leg somewhere else, so its zone is stale.
-      // Written even when the lookup fails — a null is better than a zone that
-      // belongs to the previous city.
-      if (body.city !== undefined) {
-        fields.push("timezone = ?");
-        params.push(await timezoneForCity(body.city));
+      // Renaming the city moves the leg somewhere else, so *every* derived
+      // column is stale — not just the zone, which is all this used to rewrite,
+      // leaving the new city sitting on the old one's coordinates and country.
+      // Written even when the lookup fails: nulls are re-resolved on the next
+      // read by backfillLegGeo, a stale value never is.
+      //
+      // Also runs for a `geo` sent without a `city` — picking the right Córdoba
+      // for a leg already named "Cordoba" is the whole repair path.
+      if (body.city !== undefined || body.geo !== undefined) {
+        const geo = await geoForCity(body.city ?? "", body.geo);
+        fields.push(...GEO_COLUMNS.map((c) => `${c} = ?`));
+        params.push(...geoValues(geo));
       }
+      if (fields.length === 0) return reply.code(400).send({ error: "no fields to update" });
       params.push(request.params.legId, request.params.tripId);
       await getPool().query(`UPDATE legs SET ${fields.join(", ")} WHERE id = ? AND trip_id = ?`, params);
 

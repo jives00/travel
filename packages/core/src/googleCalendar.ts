@@ -1,4 +1,4 @@
-import type { Booking, Leg, Place } from "@travel/types";
+import type { Booking, Place } from "@travel/types";
 import { BOOKING_TYPES, enumLabel } from "./enums";
 
 /** How long a timed event runs when nothing says otherwise — a dinner
@@ -53,43 +53,6 @@ function shift(when: When, minutes: number): When {
 function compact(when: When): string {
   const date = when.date.replace(/-/g, "");
   return when.time ? `${date}T${when.time.replace(":", "")}00` : date;
-}
-
-/** Everything needed to work out which zone an event happens in. Legs carry
- * the zone of their city (resolved from the city name server-side); the home
- * zone covers what has no leg to inherit from. */
-export interface TimezoneSource {
-  legs?: readonly Pick<Leg, "id" | "timezone" | "startDate" | "endDate">[];
-  homeTimezone?: string | null;
-}
-
-/** Picks the zone an event's wall-clock times should be read in.
- *
- * A leg association wins, because that's the explicit statement of where the
- * event is. Failing that, the date is matched against the legs' ranges — an
- * itinerary item's leg is optional, but a date that falls inside the Madrid
- * leg is a Madrid event whether or not it was ever filed under one. Then the
- * home zone, then null, which means "let the viewing calendar decide" — the
- * behavior before any of this existed, and a safe floor.
- *
- * Null is also what comes back while a leg is waiting on its lookup, so
- * callers must handle it rather than treating a zone as guaranteed. */
-export function resolveTimezone(
-  source: TimezoneSource,
-  opts: { legId?: number | null; date?: string | null },
-): string | null {
-  const legs = source.legs ?? [];
-  if (opts.legId != null) {
-    const leg = legs.find((l) => l.id === opts.legId);
-    if (leg?.timezone) return leg.timezone;
-  }
-  if (opts.date) {
-    const covering = legs.find(
-      (l) => l.timezone && l.startDate && l.endDate && l.startDate <= opts.date! && opts.date! <= l.endDate,
-    );
-    if (covering?.timezone) return covering.timezone;
-  }
-  return source.homeTimezone ?? null;
 }
 
 /** Builds a Google Calendar "create event" prefill link. Opens Google's own

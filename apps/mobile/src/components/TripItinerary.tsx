@@ -10,7 +10,7 @@ import {
   enumLabel,
   mapPinGroupForTag,
   mapPinGroupForBookingType,
-  todayDateString,
+  todayInTripZone,
   formatDayHeading,
   type TripDay,
   itineraryCategoryLabel,
@@ -790,13 +790,19 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     ? datedLegs.reduce((max, l) => (toDateOnlyString(l.endDate!) > max ? toDateOnlyString(l.endDate!) : max), toDateOnlyString(datedLegs[0].endDate!))
     : null;
 
+  // Today *where the trip is*, not where the phone is — a device still on US
+  // time in Seville reads 8am Saturday as Friday night, which would mark the
+  // wrong calendar day "Today" and stamp everything done that morning against
+  // yesterday. Off the trip this falls through to the home zone and then to the
+  // device, so it's only ever a correction.
+  const today = todayInTripZone({ legs: sortedLegs, homeTimezone: settings?.homeTimezone ?? null });
+
   // While the trip is under way the list is a to-do list, so entries checked
   // off drop out of it by default and what's left is what's still ahead; before
   // and after the trip it's a plan or a record, so they stay. The toggle below
   // overrides that, remembered per trip. The window is the cities' own span —
   // close enough to "while the trip is going", and available here without the
   // trip record itself.
-  const today = todayDateString();
   const tripInProgress = earliestStart != null && latestEnd != null && today >= earliestStart && today <= latestEnd;
   const showCompletedOverride = useShowCompletedOverride(tripId);
   const showCompleted = showCompletedOverride ?? !tripInProgress;
@@ -910,10 +916,12 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     setEditing(null);
   }
 
-  // Marking complete stamps completedAt with today's local date — never
-  // scheduledDate, which stays whatever the user planned so checking an entry
-  // off doesn't move it into another category section. No time is tracked, per
-  // spec. Mirrors web.
+  // Marking complete stamps completedAt with today's date *in the trip's zone*
+  // (see `today` above) — never scheduledDate, which stays whatever the user
+  // planned so checking an entry off doesn't move it into another category
+  // section. The stored value is a bare "YYYY-MM-DD", so once it's the right day
+  // where you were, it stays that day from anywhere you read it later. No time
+  // is tracked, per spec. Mirrors web.
   function toggleComplete(e: Entry) {
     const completed = !e.completed;
     if (e.kind === "booking" && e.bookingId != null) {
@@ -923,7 +931,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
     if (e.itemId == null) return;
     move.mutate({
       itemId: e.itemId,
-      body: { completed, completedAt: completed ? todayDateString() : null },
+      body: { completed, completedAt: completed ? today : null },
     });
   }
 
@@ -1016,6 +1024,7 @@ export function TripItinerary({ tripId, legs }: { tripId: number; legs: Leg[] })
       {view === "calendar" ? (
         <TripCalendar
           tripId={tripId}
+          today={today}
           legs={sortedLegs}
           entries={[...entries].sort(sortEntries)}
           showCompleted={showCompleted}

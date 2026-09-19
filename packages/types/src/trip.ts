@@ -94,8 +94,34 @@ export const SelectListImageBody = z.object({
 });
 export type SelectListImageBody = z.infer<typeof SelectListImageBody>;
 
+/** One result from the city search — what the picker lists, and what the client
+ * hands straight back on create/update when the user chooses one.
+ *
+ * Open-Meteo's geocoder is ranked by population, and taking `results[0]` on a
+ * bare city name silently picked Córdoba **Argentina** and Toledo **Ohio** for a
+ * trip through Spain. A name alone cannot settle that, and no amount of
+ * heuristics makes it honest — so the answer is to show the candidates and let
+ * the user say which one they meant. `admin1` is the region/state, and it is
+ * what usually distinguishes two same-named cities within one country. */
+export const CityCandidate = z.object({
+  name: z.string(),
+  admin1: z.string().nullable(),
+  country: z.string().nullable(),
+  countryCode: z.string().nullable(),
+  lat: z.number(),
+  lng: z.number(),
+  timezone: z.string().nullable(),
+});
+export type CityCandidate = z.infer<typeof CityCandidate>;
+
 export const CreateLegBody = z.object({
   city: z.string().min(1),
+  // Set only when the user picked from the city search. Present means "this
+  // exact point on Earth, don't guess"; absent keeps the old behaviour, where
+  // the name is geocoded server-side and backfillLegGeo retries later. One
+  // nested object rather than five loose columns so that distinction is a
+  // single presence check.
+  geo: CityCandidate.optional(),
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
   dayCount: z.number().int().positive().optional(),

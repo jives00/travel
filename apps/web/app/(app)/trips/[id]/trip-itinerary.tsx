@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Booking, Place } from "@travel/types";
-import { sortLegs, todayDateString, tripDateSpan, type TimezoneSource } from "@travel/core";
+import type { Booking, CityCandidate, Place } from "@travel/types";
+import { sortLegs, todayInTripZone, tripDateSpan, type TimezoneSource } from "@travel/core";
 import { MAP_PIN_COLORS, type MapPinGroup } from "@travel/ui-tokens";
 import { travelApi } from "@/lib/api";
+import { CityPicker, CityPickNote } from "./city-picker";
 import { useTheme } from "@/lib/theme-context";
 import { useShowCompleted } from "@/lib/itineraryPrefs";
 import {
@@ -82,10 +83,23 @@ export function TripItinerary({
     }
   }
 
-  // Today's local date, read after mount so SSR and the first client render
-  // agree on the markup (same shape the calendar view uses).
-  const [today, setToday] = useState<string | null>(null);
-  useEffect(() => setToday(todayDateString()), []);
+  // Sorted by date now that there's no manual up/down reordering — the rules
+  // (start date, then end date, dateless legs last) live in @travel/core so
+  // this copy can't drift from the order the API reads them in.
+  const sortedLegs = sortLegs(trip?.legs ?? []);
+
+  // Where calendar links get their timezone: each leg carries its city's zone,
+  // and the home setting covers anything with no leg to inherit from.
+  const tzSource: TimezoneSource = { legs: sortedLegs, homeTimezone: settings?.homeTimezone ?? null };
+
+  // Today *where the trip is*, not where the browser is — a laptop still on US
+  // time in Seville reads 8am Saturday as Friday night, which would mark the
+  // wrong calendar day "Today" and stamp everything done that morning against
+  // yesterday. Held back until after mount so SSR and the first client render
+  // agree on the markup, and recomputed as the trip (and its legs' zones) load.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const today = mounted ? todayInTripZone(tzSource) : null;
 
   // While the trip is under way the list is a to-do list, so entries checked
   // off drop out of it by default and what's left is what's still ahead.
@@ -102,6 +116,10 @@ export function TripItinerary({
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [newCity, setNewCity] = useState("");
+  // Set only when the city was chosen from the search rather than typed — see
+  // CityPicker. Sent as the leg's `geo` so the server stores that exact place
+  // instead of geocoding the name and hoping.
+  const [newCityPick, setNewCityPick] = useState<CityCandidate | null>(null);
   const [addingCity, setAddingCity] = useState(false);
   // Every section (Pre-Trip, Post-Trip, each city) expands by default; a
   // collapse choice is remembered per-trip in localStorage so it survives
@@ -155,16 +173,8 @@ export function TripItinerary({
     };
   }
 
-  // Sorted by date now that there's no manual up/down reordering — the rules
-  // (start date, then end date, dateless legs last) live in @travel/core so
-  // this copy can't drift from the order the API reads them in.
-  const sortedLegs = sortLegs(trip?.legs ?? []);
   const placesById = new Map<number, Place>((tripPlaces ?? []).map((p) => [p.id, p]));
   const legOptions: LegOption[] = sortedLegs.map((l) => ({ id: l.id, city: l.city }));
-
-  // Where calendar links get their timezone: each leg carries its city's zone,
-  // and the home setting covers anything with no leg to inherit from.
-  const tzSource: TimezoneSource = { legs: sortedLegs, homeTimezone: settings?.homeTimezone ?? null };
   const placeOptions = (tripPlaces ?? []).map((p) => ({ id: p.id, name: p.name }));
 
   const hotelBookingByLegId = new Map<number, Booking>();
@@ -172,10 +182,12 @@ export function TripItinerary({
     if (b.type === "hotel" && b.legId != null && !hotelBookingByLegId.has(b.legId)) hotelBookingByLegId.set(b.legId, b);
   }
 
-  // Marking complete stamps completedAt with today's local date — never
-  // scheduledDate, which stays whatever the user planned so checking an entry
-  // off doesn't move it into another category section. No time is tracked, per
-  // spec. When checking (not unchecking), the fade plays in place for FADE_MS
+  // Marking complete stamps completedAt with today's date *in the trip's zone*
+  // (see `today` above) — never scheduledDate, which stays whatever the user
+  // planned so checking an entry off doesn't move it into another category
+  // section. The stored value is a bare "YYYY-MM-DD", so once it's the right
+  // day where you were, it stays that day from anywhere you read it later. No
+  // time is tracked, per spec. When checking (not unchecking), the fade plays in place for FADE_MS
   // before the list actually reorders (or, with completed hidden, drops) the
   // entry.
   const FADE_MS = 400;
@@ -188,7 +200,7 @@ export function TripItinerary({
         : entry.item
           ? travelApi.itinerary.move(tripId, entry.item.id, {
               completed,
-              completedAt: completed ? todayDateString() : null,
+              completedAt: completed ? (today ?? todayInTripZone(tzSource)) : null,
             })
           : undefined;
     if (!save) return;
@@ -212,9 +224,14 @@ export function TripItinerary({
     try {
       // No dates required — a leg can exist as just a city + day count on a
       // dreaming trip, per the spec's grill-session decision.
-      await travelApi.trips.addLeg(tripId, { city: newCity.trim(), dayCount: 1 });
+      await travelApi.trips.addLeg(tripId, {
+        city: newCity.trim(),
+        dayCount: 1,
+        ...(newCityPick ? { geo: newCityPick } : {}),
+      });
       await queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
       setNewCity("");
+      setNewCityPick(null);
     } finally {
       setAddingCity(false);
     }
@@ -394,6 +411,7 @@ export function TripItinerary({
             ever planned" (Free Day) apart from "it's all checked off". */}
         <TripCalendar
           tripId={tripId}
+          today={today}
           legs={sortedLegs}
           entries={sortEntries(allEntries)}
           isVisible={isVisible}
@@ -548,20 +566,25 @@ export function TripItinerary({
         </section>
       )}
 
-      <form onSubmit={addCity} className="flex gap-2">
-        <input
-          className="flex-1 rounded border border-gridline bg-transparent p-2 text-text-primary"
-          placeholder="Add a city…"
-          value={newCity}
-          onChange={(e) => setNewCity(e.target.value)}
-        />
-        <button
-          type="submit"
-          disabled={addingCity}
-          className="rounded bg-category-transit px-4 py-2 font-medium text-white disabled:opacity-50"
-        >
-          Add city
-        </button>
+      <form onSubmit={addCity} className="space-y-1">
+        <div className="flex gap-2">
+          <CityPicker
+            className="flex-1"
+            value={newCity}
+            onChange={setNewCity}
+            onPick={setNewCityPick}
+            placeholder="Add a city…"
+            label="Add a city"
+          />
+          <button
+            type="submit"
+            disabled={addingCity}
+            className="shrink-0 rounded bg-category-transit px-4 py-2 font-medium text-white disabled:opacity-50"
+          >
+            Add city
+          </button>
+        </div>
+        <CityPickNote picked={newCityPick} />
       </form>
 
       <button

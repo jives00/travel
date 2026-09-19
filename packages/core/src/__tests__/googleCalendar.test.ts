@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bookingCalendarUrl, googleCalendarUrl, itineraryCalendarUrl, resolveTimezone } from "../googleCalendar";
+import { bookingCalendarUrl, googleCalendarUrl, itineraryCalendarUrl } from "../googleCalendar";
+import { resolveTimezone } from "../timezone";
 
 function params(url: string | null): URLSearchParams {
   return new URL(url!).searchParams;
